@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Env / secrets — never commit real values (Section 18.7)
+.env
+.env.local
+.env.*.local
+
+# Local databases (SQLite dev/test)
+*.db
+*.db-journal
+prisma/dev.db
+prisma/test.db
+
+# Build output
+.next/
+dist/
+out/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db

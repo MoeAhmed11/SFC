@@ -1,0 +1,416 @@
+// SchoolConnect — Prisma schema
+//
+// Phase 1 scope: tenant (School) + staff authentication (StaffUser) + audit
+// logging (AuditLog). Later phases add Pupil, Guardian, Event, ConsentForm,
+// ConsentResponse, SecureAccessToken, Notification, etc. (see IMPLEMENTATION_PLAN.md).
+//
+// Datastore: SQLite for local dev/test (no DB server available here). The
+// schema is kept PostgreSQL-compatible: no SQLite-only features are used, so
+// switching to Postgres for a pilot is a provider + DATABASE_URL change plus a
+// fresh migration. Enums are modelled as String + app-level validation because
+// SQLite has no native enum type; on Postgres these can become native enums.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A tenant. Every other record belongs to exactly one School and all access
+/// is scoped by schoolId server-side (Section 5.4 tenant isolation).
+model School {
+  id         String   @id @default(cuid())
+  name       String
+  // "state" | "independent" — validated in the application layer.
+  schoolType String
+  // IANA timezone, e.g. "Europe/London". Used for DST-correct scheduling later.
+  timezone   String   @default("Europe/London")
+  // Free-form JSON settings (reminder defaults, policy flags). Stored as text
+  // for SQLite/Postgres portability; parsed/validated in the app layer.
+  settings   String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  staff         StaffUser[]
+  auditLogs     AuditLog[]
+  classGroups   ClassGroup[]
+  pupils        Pupil[]
+  guardians     Guardian[]
+  relationships PupilGuardianRelationship[]
+  events          Event[]
+  eventRecipients EventRecipient[]
+  accessTokens     SecureAccessToken[]
+  consentResponses ConsentResponse[]
+  notifications    Notification[]
+  inviteTokens     InviteToken[]
+
+  @@map("schools")
+}
+
+/// A staff member of a school. Parents never have accounts (Section 5.3).
+model StaffUser {
+  id           String   @id @default(cuid())
+  schoolId     String
+  name         String
+  email        String
+  // scrypt-derived credential (salt embedded). Null while a staff member is
+  // "invited" and has not yet set a password.
+  passwordHash String?
+  // "admin" | "organiser" — validated in the application layer (RBAC).
+  role         String
+  // "invited" | "active" | "deactivated".
+  status       String   @default("invited")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school        School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  sessions      StaffSession[]
+  createdEvents Event[]        @relation("EventCreatedBy")
+  inviteTokens  InviteToken[]
+
+  // Email is unique per tenant, not globally: the same person could exist in
+  // two schools. Enforces tenant-scoped uniqueness (Section 3.1).
+  @@unique([schoolId, email])
+  @@index([schoolId])
+  @@map("staff_users")
+}
+
+/// Server-side session record for a signed-in staff member. The session token
+/// is stored hashed; the raw token lives only in the client cookie.
+model StaffSession {
+  id          String    @id @default(cuid())
+  schoolId    String
+  staffUserId String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@index([staffUserId])
+  @@index([schoolId])
+  @@map("staff_sessions")
+}
+
+/// Append-only audit trail for important actions (Section 7 FR-01, Section 11).
+/// Metadata is minimal and must not contain secrets or unnecessary personal data.
+model AuditLog {
+  id         String   @id @default(cuid())
+  schoolId   String
+  // "staff" | "system" | "parent".
+  actorType  String
+  actorId    String?
+  // e.g. "staff.login", "staff.invited", "staff.role_changed".
+  action     String
+  entityType String?
+  entityId   String?
+  // Minimal JSON metadata (stored as text for portability).
+  metadata   String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: school data — classes, pupils, guardians, and the authorised
+// pupil↔guardian relationships that drive who may be contacted.
+// All models are tenant-scoped by schoolId (Section 5.4). Data minimisation
+// applies: only the minimum necessary identifying fields (Section 11, FR-10).
+// ---------------------------------------------------------------------------
+
+/// A class or year group within a school.
+model ClassGroup {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  // Optional year group label, e.g. "Year 3".
+  yearGroup String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  pupils Pupil[]
+
+  // Class names are unique per tenant.
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("class_groups")
+}
+
+/// A pupil. Minimal identifying fields only (Section 9 / Section 11).
+model Pupil {
+  id           String   @id @default(cuid())
+  schoolId     String
+  classGroupId String?
+  firstName    String
+  lastName     String
+  // Optional school-assigned reference used for CSV duplicate matching.
+  externalRef  String?
+  // "active" | "archived".
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school           School                      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classGroup       ClassGroup?                 @relation(fields: [classGroupId], references: [id], onDelete: SetNull)
+  relationships    PupilGuardianRelationship[]
+  eventRecipients  EventRecipient[]
+  accessTokens     SecureAccessToken[]
+  consentResponses ConsentResponse[]
+
+  // externalRef, when present, is unique per tenant (used for idempotent import).
+  @@unique([schoolId, externalRef])
+  @@index([schoolId])
+  @@index([schoolId, classGroupId])
+  @@map("pupils")
+}
+
+/// A parent/guardian contact. No login (Section 5.3); reached via email +
+/// secure links (later phases).
+model Guardian {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  email     String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school           School                      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  relationships    PupilGuardianRelationship[]
+  eventRecipients  EventRecipient[]
+  accessTokens     SecureAccessToken[]
+  consentResponses ConsentResponse[]
+
+  // Guardian email is unique per tenant (matches on import within a school).
+  @@unique([schoolId, email])
+  @@index([schoolId])
+  @@map("guardians")
+}
+
+/// The authorised link between a pupil and a guardian. Only the primary contact
+/// is notified / may consent (decision 17.2). At most one primary contact per
+/// pupil is enforced in the application/service layer (SQLite has no partial
+/// unique indexes); on Postgres this can become a partial unique index.
+model PupilGuardianRelationship {
+  id             String   @id @default(cuid())
+  schoolId       String
+  pupilId        String
+  guardianId     String
+  // Free-text relationship, e.g. "Mother", "Father", "Carer".
+  relationship   String?
+  // Whether this guardian is authorised for this pupil at all.
+  isAuthorised   Boolean  @default(true)
+  // Whether this guardian is THE primary contact for the pupil.
+  isPrimaryContact Boolean @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  pupil    Pupil    @relation(fields: [pupilId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  // A given guardian links to a given pupil at most once.
+  @@unique([schoolId, pupilId, guardianId])
+  @@index([schoolId])
+  @@index([schoolId, pupilId])
+  @@index([schoolId, guardianId])
+  @@map("pupil_guardian_relationships")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: events (FR-02). An event moves through a status lifecycle:
+//   draft -> published -> cancelled | completed
+// Recipients are materialised at publish time from each eligible pupil's
+// single primary-contact guardian (decision 17.2).
+// ---------------------------------------------------------------------------
+
+/// A school activity requiring parental consent.
+model Event {
+  id              String    @id @default(cuid())
+  schoolId        String
+  title           String
+  description     String?
+  location        String?
+  // Event start/end and consent deadline are stored as UTC instants; the
+  // school timezone (School.timezone) governs display and DST-correct
+  // scheduling in later phases.
+  startsAt        DateTime
+  endsAt          DateTime
+  consentDeadline DateTime
+  // "draft" | "published" | "cancelled" | "completed".
+  status          String    @default("draft")
+  createdById     String
+  publishedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  school           School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  createdBy        StaffUser           @relation("EventCreatedBy", fields: [createdById], references: [id])
+  recipients       EventRecipient[]
+  accessTokens     SecureAccessToken[]
+  consentResponses ConsentResponse[]
+  notifications    Notification[]
+
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@map("events")
+}
+
+/// A pupil+guardian pair eligible for an event. Created at publish time. In
+/// later phases this anchors consent requests, responses, and notifications.
+model EventRecipient {
+  id               String   @id @default(cuid())
+  schoolId         String
+  eventId          String
+  pupilId          String
+  guardianId       String
+  // "pending" | "invited" (invitations sent in the notifications phase).
+  invitationStatus String   @default("pending")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pupil    Pupil    @relation(fields: [pupilId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  // One recipient row per pupil+guardian per event.
+  @@unique([schoolId, eventId, pupilId, guardianId])
+  @@index([schoolId])
+  @@index([schoolId, eventId])
+  @@map("event_recipients")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: secure parent links (FR-04) and consent responses (FR-03).
+// A token is high-entropy and recipient-specific; only its hash is stored.
+// Consent is a simple yes/no (decision 17.12), and prior responses are retained
+// as superseded rows for audit history — consent is NEVER inferred from
+// silence, an opened link, or a sent reminder.
+// ---------------------------------------------------------------------------
+
+/// A secure, recipient-specific access token binding a guardian to a single
+/// pupil+event and permitted action. Store the hash, never the raw token.
+model SecureAccessToken {
+  id             String    @id @default(cuid())
+  schoolId       String
+  eventId        String
+  pupilId        String
+  guardianId     String
+  tokenHash      String    @unique
+  // Permitted action, e.g. "consent". Kept explicit for least privilege.
+  permittedAction String   @default("consent")
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pupil    Pupil    @relation(fields: [pupilId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, eventId])
+  @@map("secure_access_tokens")
+}
+
+/// A consent response for a pupil+event by a guardian. "granted" or "declined"
+/// (no other values). Corrections create a new row and mark the prior one
+/// "superseded"; the current response is the single row with state "current".
+model ConsentResponse {
+  id          String   @id @default(cuid())
+  schoolId    String
+  eventId     String
+  pupilId     String
+  guardianId  String
+  // "granted" | "declined".
+  response    String
+  // "current" | "superseded".
+  state       String   @default("current")
+  formVersion Int      @default(1)
+  notes       String?
+  submittedAt DateTime @default(now())
+
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pupil    Pupil    @relation(fields: [pupilId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, eventId])
+  @@index([schoolId, eventId, pupilId, guardianId, state])
+  @@map("consent_responses")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: notifications & reminders (FR-06, FR-07, FR-08). Each notification is
+// scheduled, then sent asynchronously by a worker. Idempotency is guaranteed by
+// a unique dedupeKey plus a status guard (only scheduled/failed rows are sent).
+// No child personal data or message bodies are stored here (Section 11).
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id           String  @id @default(cuid())
+  schoolId     String
+  eventId      String
+  pupilId      String
+  guardianId   String
+  // "consent_request" | "deadline_reminder" | "event_reminder" |
+  // "change_notice" | "confirmation".
+  type         String
+  // Deterministic idempotency key = hash(event, pupil, guardian, type, slot).
+  dedupeKey    String  @unique
+  // "scheduled" | "sent" | "failed" | "cancelled".
+  status       String  @default("scheduled")
+  scheduledAt  DateTime
+  attempts     Int      @default(0)
+  sentAt       DateTime?
+  providerMessageId String?
+  // Short machine code only (e.g. "provider_error"), never a personal payload.
+  failureCode  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  event    Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status, scheduledAt])
+  @@index([schoolId, eventId])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Staff invite-acceptance tokens. Mirrors SecureAccessToken's design: a
+// high-entropy, single-purpose, hash-stored token. Bound to one staff user and
+// consumable exactly once, so a leaked/reused link cannot activate an account
+// twice or be replayed after use.
+// ---------------------------------------------------------------------------
+
+model InviteToken {
+  id          String    @id @default(cuid())
+  schoolId    String
+  staffUserId String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  school    School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([staffUserId])
+  @@map("invite_tokens")
+}

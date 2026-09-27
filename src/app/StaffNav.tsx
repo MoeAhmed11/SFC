@@ -1,0 +1,34 @@
+import Link from "next/link";
+
+// Shared top navigation for all authenticated staff pages, so the app is
+// coherently browsable between events, data import, and staff management.
+export function StaffNav() {
+  return (
+    <header className="appbar">
+      <div className="appbar__inner">
+        <Link href="/events" className="brandmark" aria-label="SchoolConnect home">
+          <span className="brandmark__logo">SC</span>
+          SchoolConnect
+        </Link>
+
+        <nav className="appbar__nav" aria-label="Main navigation">
+          <Link href="/events" className="navlink">
+            Events
+          </Link>
+          <Link href="/imports" className="navlink">
+            Import roster
+          </Link>
+          <Link href="/staff" className="navlink">
+            Staff
+          </Link>
+        </nav>
+
+        <form action="/api/auth/logout" method="post" className="appbar__spacer">
+          <button type="submit" className="btn btn--ghost btn--sm">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </header>
+  );
+}
