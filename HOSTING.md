@@ -59,6 +59,31 @@ Commit the regenerated `prisma/migrations/` folder on that branch. Render's
 real database on every deploy — it never uses `migrate dev`, so it's safe to
 run unattended.
 
+## Known pitfall: don't set `NODE_ENV=production` as a persistent env var
+
+`render.yaml` deliberately does **not** set `NODE_ENV` in the web service's
+or cron job's `envVars` list. If you set `NODE_ENV: production` there,
+Render injects it into the **build** environment too (`npm ci`, `npm run
+build`, `npx prisma migrate deploy`), and npm's rule is: if `NODE_ENV=production`
+is set when it installs, it skips `devDependencies` entirely — including
+`typescript`, `@types/node`, `@types/react`, `prisma`, and `tsx`, all of
+which the build and pre-deploy steps need. This produces the error:
+
+```
+It looks like you're trying to use TypeScript but do not have the required
+package(s) installed. Please install typescript, @types/react, and
+@types/node...
+```
+
+even though those packages are correctly listed in `package.json`.
+
+`NODE_ENV=production` still matters at **runtime** — `src/server/db.ts` uses
+it to gate Prisma's logging, and `src/server/http/session.ts` uses it to
+require the `secure` cookie flag — so it's set inline on `startCommand`
+instead (`NODE_ENV=production npm start` / `NODE_ENV=production npm run
+worker -- all`), which only applies to the running process, never to the
+build or pre-deploy steps. Don't move it back into `envVars`.
+
 ## Deploy steps
 
 1. Push the repo (with the Postgres provider switch above) to a Git host
