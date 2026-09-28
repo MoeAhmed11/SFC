@@ -83,57 +83,39 @@ token, which sends through whichever `EmailProvider` is configured
 send is deliberately non-blocking: if it fails (misconfiguration, provider
 outage), invite creation still succeeds and the response/UI still returns the
 raw `inviteUrl` as a copy-paste fallback — an admin is never stuck unable to
-invite someone because of an email hiccup. See
-`tests/staff-invite-email.test.ts`.
+invite someone because of an email hiccup. Failures are also logged
+server-side (`console.error` in `staffInviteEmailService`) so a misconfigured
+deployment is diagnosable from Render's log stream, not just the generic UI
+message. See `tests/staff-invite-email.test.ts`.
 
-**Remaining practical limitation:** a real email provider (Resend) is now
-implemented behind `EmailProvider` and configured in `render.yaml`
-(`EMAIL_PROVIDER=resend`, `EMAIL_FROM=no-reply@consapass.co.uk`), with an
-active Resend subscription. What's still unverified in this environment: the
-`consapass.co.uk` sending domain must be verified in the Resend dashboard
-(SPF/DKIM), and `RESEND_API_KEY` must be set as a real secret in Render (or
-locally in `.env`, never committed) before any email actually sends. Until
-both of those are done, staff invite emails (and parent consent/reminder
-emails) will fail to send — see item 2 below.
+**Resend is now live and verified end-to-end in production.** The
+`consapass.co.uk` sending domain is verified in the Resend dashboard,
+`RESEND_API_KEY` is set on Render, and both parent consent/reminder emails
+and staff invite emails have been confirmed delivered against the real
+`consapass-web` deployment. One operational pitfall hit and fixed along the
+way: `RESEND_API_KEY` is a `sync: false` secret defined separately on **each**
+`render.yaml` service (`consapass-web` and `consapass-worker`) — Render does
+not share it between services just because the key name matches. The worker
+had it set and reminders sent fine; the web service didn't, so invite emails
+silently failed with nothing in Resend's logs (the send never left our
+process) until the key was added there too. If email stops working for only
+one of the two send paths again, check that service's own env vars in the
+Render dashboard first.
 
 ## Other things that do NOT exist yet
 
 1. **No self-service parent link reissue.** If a parent's link expires or is
    revoked, only staff can reissue it (`secureLinkService.reissueLink`, no UI
    yet). The invalid-link page tells parents to contact the school.
-2. **Resend is implemented and configured, but not yet verified end-to-end.**
-   `src/server/notifications/providers/resend.ts` implements `EmailProvider`
-   against the Resend HTTP API (chosen over SMTP/SES/Postmark/SendGrid: a
-   single HTTP call per send with no connection pooling to manage, an EU
-   sending region for UK GDPR alignment, and a free tier — 3,000
-   emails/month — that covers pilot volume). `render.yaml` now sets
-   `EMAIL_PROVIDER=resend` and `EMAIL_FROM=ConsaPass <no-reply@consapass.co.uk>`
-   directly, and there's an active Resend subscription. Both staff invite
-   emails (`staffInviteEmailService`) and parent consent/reminder emails
-   (`processDueNotifications`) go through this same provider now — but two
-   things still need doing before any email actually sends, per Section 18.3
-   (no real integrations without approval):
-   1. Verify `consapass.co.uk` as a sending domain in the Resend dashboard
-      (adds SPF/DKIM DNS records at the domain registrar).
-   2. Set `RESEND_API_KEY` as the real secret value — as a Render
-      `sync: false` env var (prompted during Blueprint apply) for the
-      deployed app, and in `.env` (never committed) for local dev/testing
-      with `EMAIL_PROVIDER=resend`.
-   3. Send one real test email (e.g. invite a test staff account) and
-      confirm delivery before onboarding a real school.
-   Tests (`tests/resend-email-provider.test.ts`,
-   `tests/email-provider-config.test.ts`) cover the adapter's request
-   shaping and error-code mapping with `fetch` stubbed — no real network
-   calls are made in the test suite, and no real email has been sent yet in
-   this environment.
-3. **No production datastore configured.** Development and tests use SQLite.
-   The schema is PostgreSQL-compatible by design, but no PostgreSQL instance,
-   connection pooling, or migration process for a hosted environment has been
-   set up.
-4. **No background worker deployment.** `processDueNotifications` and the new
-   `retentionService.runRetentionSweep` are both callable functions, not
-   running services. Nothing currently calls either on a schedule.
-5. **Rate limiting is now implemented but single-instance only; CSRF has been
+2. **No production datastore configured locally.** Development and tests use
+   SQLite; the deployed app on Render uses managed Postgres (see `HOSTING.md`).
+   The schema is pinned to `postgresql` on `main`, so local dev/test requires
+   the temporary provider swap documented in `HOSTING.md`.
+3. **No background worker deployment outside Render.** `processDueNotifications`
+   and `retentionService.runRetentionSweep` only run on a schedule via the
+   `consapass-worker` Render cron job — there is no equivalent scheduled
+   trigger for any other hosting target.
+4. **Rate limiting is implemented but single-instance only; CSRF has been
    reviewed, not hardened further.** Login, consent tokens, and invite tokens
    are rate-limited (`src/server/http/rateLimit.ts`), but the limiter is an
    in-process `Map` with no shared state across a horizontally-scaled
@@ -143,11 +125,11 @@ emails) will fail to send — see item 2 below.
    residual gap (no synchronizer token) rather than a false "solved." No
    production security headers beyond `Referrer-Policy`
    (`next.config.mjs`) — no CSP, no HSTS configuration.
-6. **No UI for data retention yet.** The service (`retentionService`,
+5. **No UI for data retention yet.** The service (`retentionService`,
    preview + sweep, admin-only, audited) exists and is tested, but there is no
    `/staff`-style page to view or trigger it — only a callable function.
-7. **No CI pipeline.** Tests, typecheck, and build are run manually.
-8. **No accessibility or security audit.** See the two checklist documents —
+6. **No CI pipeline.** Tests, typecheck, and build are run manually.
+7. **No accessibility or security audit.** See the two checklist documents —
    both are forward guidance, not completed reviews.
 
 ## Support and operational notes for whoever builds the next layer
@@ -164,24 +146,16 @@ emails) will fail to send — see item 2 below.
 
 ## Recommended next steps toward an actual pilot
 
-1. Verify `consapass.co.uk` in the Resend dashboard (SPF/DKIM) and set the
-   real `RESEND_API_KEY` (Render `sync: false` secret / local `.env`), then
-   run one real end-to-end send test before trusting it with real
-   recipients. This lets invite links be emailed automatically instead of
-   copy-pasted by an admin.
-2. Stand up a hosted PostgreSQL instance and a scheduled worker/cron process
-   for both `processDueNotifications` and `retentionService.runRetentionSweep`
-   — neither has a deployment target yet, only a callable function.
-3. Build a self-service "request a new link" flow for parents, or explicitly
+1. Build a self-service "request a new link" flow for parents, or explicitly
    decide it's not needed for the pilot (currently reissue is staff-only).
-4. If deploying to more than one server instance, replace `InMemoryRateLimiter`
+2. If deploying to more than one server instance, replace `InMemoryRateLimiter`
    with a Redis-backed implementation of the same `RateLimiter` interface —
    the current one only enforces limits per-instance.
-5. Build a staff-facing UI for retention preview/sweep (the service exists;
+3. Build a staff-facing UI for retention preview/sweep (the service exists;
    the page doesn't).
-6. Commission a UK data protection/safeguarding review and an accessibility
+4. Commission a UK data protection/safeguarding review and an accessibility
    review before onboarding any real school (spec Section 18.10).
-7. Run a proper UK IPO/USPTO trademark register search on "ConsaPass" before
+5. Run a proper UK IPO/USPTO trademark register search on "ConsaPass" before
    any large-scale public launch — the domain is confirmed, but formal
    trademark clearance hasn't been checked through the tools available here.
 
@@ -194,6 +168,10 @@ emails) will fail to send — see item 2 below.
   slice 4).
 - Staff invite-acceptance flow: invited staff can set a password and sign in,
   verified end-to-end.
+- Production deploy on Render (Postgres, web service, worker cron job) is
+  live, with the `consapass.co.uk` domain and DNS resolving. Resend is
+  verified end-to-end in production for both parent consent/reminder emails
+  and staff invite emails.
 - All previously-open spec Section 17 decisions resolved or explicitly
   deferred with a stated reason (see `IMPLEMENTATION_PLAN.md` §9.0):
   reminder defaults confirmed, SMIS integration and pricing deferred, email

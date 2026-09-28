@@ -177,10 +177,25 @@ review may have its own requirements for where data is stored.
   database and exercised both code paths cleanly (notifications: nothing
   due; retention: iterated both demo schools, nothing expired) — confirming
   the script's logic and imports work before relying on Render to run it.
-- The Postgres migration regeneration and the actual Render deploy were
-  **not** run as part of this change (no Postgres instance or Render account
-  available in this environment) — verify steps 1–7 above against a real
-  Render account before treating this as pilot-ready. The Resend send path
-  itself was verified separately with unit tests against a stubbed `fetch`
-  (`tests/resend-email-provider.test.ts`) — no real email has been sent to a
-  real recipient yet; do that once the domain is verified and the key is set.
+- The Resend send path was verified with unit tests against a stubbed
+  `fetch` (`tests/resend-email-provider.test.ts`) before the real deploy.
+
+## Live deploy status
+
+The Blueprint has since been applied to a real Render account: Postgres,
+`consapass-web`, and `consapass-worker` are live, `consapass.co.uk` DNS
+resolves to the web service, and `consapass.co.uk` is verified as a sending
+domain in Resend. Both parent consent/reminder emails (via the worker) and
+staff invite emails (via the web service) have been confirmed delivered
+end-to-end against real inboxes.
+
+One deploy-specific pitfall hit along the way: `RESEND_API_KEY` is declared
+`sync: false` separately on **both** the `consapass-web` and
+`consapass-worker` service blocks in `render.yaml`. Render prompts for it
+once per service during the Blueprint apply, but it is not automatically
+shared between them just because the variable name matches — setting it on
+one service does not set it on the other. Missing it on just the web service
+produced a silent failure (invite emails never reached Resend at all, so
+nothing appeared in Resend's own logs) while the worker's reminders kept
+sending fine. If one send path stops working while the other keeps working,
+check that specific service's env vars in the Render dashboard first.
