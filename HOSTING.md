@@ -89,8 +89,13 @@ build or pre-deploy steps. Don't move it back into `envVars`.
 
 1. Push the repo (with the Postgres provider switch above) to a Git host
    Render can access (GitHub/GitLab).
-2. In the Render Dashboard: **New > Blueprint**, select the repo/branch.
-   Render reads `render.yaml` and shows the three resources to create.
+2. In the Render Dashboard: **New > Blueprint**, select the repo and the
+   **`deploy/render`** branch specifically — not `main`. `main` keeps
+   `prisma/schema.prisma` on `sqlite` for local dev/tests (see the note
+   above); `deploy/render` is the only branch with the `postgresql`
+   datasource switch, and `render.yaml`'s three resources all pin
+   `branch: deploy/render` to match. Render reads `render.yaml` and shows
+   the three resources to create.
 3. Render will prompt for the one `sync: false` secret this Blueprint
    defines: **`RESEND_API_KEY`** (on both the web service and the worker
    cron job). Paste the real key from the Resend dashboard when prompted —

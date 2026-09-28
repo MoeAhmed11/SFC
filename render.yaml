@@ -30,7 +30,7 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    branch: main
+    branch: deploy/render
     buildCommand: npm ci && npm run prisma:generate && npm run build
     preDeployCommand: npx prisma migrate deploy
     startCommand: NODE_ENV=production npm start
@@ -61,7 +61,7 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    branch: main
+    branch: deploy/render
     schedule: "*/15 * * * *"
     buildCommand: npm ci && npm run prisma:generate
     startCommand: NODE_ENV=production npm run worker -- all
