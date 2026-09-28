@@ -28,37 +28,40 @@ see [Data residency](#data-residency-why-frankfurt) below:
    notifications and retention into two separate cron jobs with different
    schedules (`npm run worker -- notifications` / `-- retention`).
 
-## One manual step before your first deploy: switch the Prisma provider
+## Single-trunk workflow: `main` is the production branch
 
-`prisma/schema.prisma` targets SQLite locally on purpose (no DB server is
-available in dev). Prisma's `datasource` provider can't be set from an
-environment variable, so switching to Postgres for a real deploy is a
-one-line code change, not a config change:
+This project uses **one branch, `main`**, and Render deploys from it directly.
+`main` carries the **PostgreSQL** Prisma schema and the production
+`render.yaml`. There is no separate `deploy/render` branch any more.
+
+The tradeoff: because `prisma/schema.prisma` is pinned to `postgresql` and no
+Postgres server runs locally, the SQLite-based local `npm run dev` / `npm test`
+path does **not** work against `main` unmodified — `tests/globalSetup.ts` does
+`prisma db push` against a `file:` SQLite URL, which the Postgres provider
+rejects. This is a deliberate, accepted state: **verification currently happens
+against the live Render/Postgres deployment**, not locally or in CI. A proper
+dev environment (a local Postgres, or a scripted provider swap to SQLite) should
+be stood up before any real school data is onboarded.
+
+If you need to run the test suite locally in the meantime, temporarily flip the
+provider to SQLite (the schema is kept Postgres/SQLite-compatible), then revert
+it — do not commit the swap:
 
 ```prisma
 datasource db {
-  provider = "postgresql"   // was "sqlite"
+  provider = "sqlite"   // temporary, local only — revert before committing
   url      = env("DATABASE_URL")
 }
 ```
 
-Do this on a deploy branch (e.g. `deploy/render`) rather than in the schema
-everyone uses for local dev, or local `npm run dev` / `npm test` will break
-for anyone still on SQLite. Because the schema was deliberately kept
-Postgres-compatible (no SQLite-only types), no model changes are needed —
-only this one line, plus regenerating migrations for Postgres:
-
 ```powershell
-# On the deploy branch, after changing the provider line above:
-Remove-Item -Recurse -Force prisma/migrations
-$env:DATABASE_URL = "postgresql://user:password@localhost:5432/consapass_shadow"
-npx prisma migrate dev --name init_postgres
+npx prisma generate; npm test   # then: git checkout -- prisma/schema.prisma
 ```
 
-Commit the regenerated `prisma/migrations/` folder on that branch. Render's
-`preDeployCommand` (`npx prisma migrate deploy`) then applies them to the
-real database on every deploy — it never uses `migrate dev`, so it's safe to
-run unattended.
+Migrations for Postgres live in `prisma/migrations/`. Render's
+`preDeployCommand` (`npx prisma migrate deploy`) applies them to the real
+database on every deploy — it never uses `migrate dev`, so it's safe to run
+unattended.
 
 ## Known pitfall: don't set `NODE_ENV=production` as a persistent env var
 
@@ -90,12 +93,11 @@ build or pre-deploy steps. Don't move it back into `envVars`.
 1. Push the repo (with the Postgres provider switch above) to a Git host
    Render can access (GitHub/GitLab).
 2. In the Render Dashboard: **New > Blueprint**, select the repo and the
-   **`deploy/render`** branch specifically — not `main`. `main` keeps
-   `prisma/schema.prisma` on `sqlite` for local dev/tests (see the note
-   above); `deploy/render` is the only branch with the `postgresql`
-   datasource switch, and `render.yaml`'s three resources all pin
-   `branch: deploy/render` to match. Render reads `render.yaml` and shows
-   the three resources to create.
+   **`main`** branch. `main` carries the `postgresql` datasource and
+   `render.yaml`'s resources all pin `branch: main` to match. Render reads
+   `render.yaml` and shows the resources to create. (If you have an existing
+   Blueprint still pointing at the old `deploy/render` branch, repoint it to
+   `main` in each service's **Settings > Build & Deploy > Branch**.)
 3. Render will prompt for the one `sync: false` secret this Blueprint
    defines: **`RESEND_API_KEY`** (on both the web service and the worker
    cron job). Paste the real key from the Resend dashboard when prompted —
@@ -122,41 +124,21 @@ build or pre-deploy steps. Don't move it back into `envVars`.
 ## Shipping updates: how a push redeploys the same services
 
 Once the Blueprint exists, Render redeploys the **same** services on every
-commit to `deploy/render` (`autoDeployTrigger: commit` in `render.yaml`). It
-matches services by name (the web service + worker cron job), so a push updates
-them **in place** — nothing is duplicated or torn down, and the Postgres
-instance is never recreated. Each deploy just rebuilds the app code and runs
+commit to `main` (`autoDeployTrigger: commit` in `render.yaml`). It matches
+services by name (the web service + worker cron job), so a push updates them
+**in place** — nothing is duplicated or torn down, and the Postgres instance is
+never recreated. Each deploy just rebuilds the app code and runs
 `npx prisma migrate deploy` (migrations, not a wipe).
 
-You normally work on `main`, though, and `main` is never deployed directly (it
-carries the SQLite schema). The `.github/workflows/promote-to-render.yml`
-GitHub Action bridges the two:
+**Net effect:** `git push origin main` → Render rebuilds and redeploys the
+existing web + worker services. Same services, same database, updated code.
 
-- **Trigger:** any push to `main`.
-- **What it does:** rebases `deploy/render`'s deploy-only commits (Postgres
-  datasource, and any other deploy-only work such as the production email
-  provider and Blueprint branch pin) on top of the new `main`, then force-pushes
-  `deploy/render` with `--force-with-lease`. That push is what triggers Render
-  to redeploy.
-- **Net effect:** `git push origin main` → `deploy/render` updated → Render
-  rebuilds and redeploys the existing web + worker services. Same services, same
-  database, updated code.
-
-**Safety guarantees:**
-
-- If the rebase hits a conflict, the job **fails and pushes nothing** — the
-  deploy branch and production config are left untouched, and you reconcile the
-  branches by hand. This keeps the deliberate `main` (SQLite) vs `deploy/render`
-  (Postgres) split from ever being auto-merged the wrong way.
-- `--force-with-lease` refuses to push if `deploy/render` moved out of band
-  (e.g. a manual hotfix), so an automated run can't clobber someone else's push.
-- The Action uses the built-in `GITHUB_TOKEN` (`contents: write`); no extra
-  secret is required.
-
-This assumes `deploy/render` stays equal to `main` plus a small, linear stack of
-deploy-only commits — which is the current shape. If you ever add commits to
-`deploy/render` that also change files `main` changes, expect the occasional
-conflict stop, which is intentional (a human decides, not the robot).
+There is no promotion/rebase step any more — the old
+`.github/workflows/promote-to-render.yml` (which bridged a separate
+`deploy/render` branch) has been removed now that `main` is the single trunk.
+`.github/workflows/deploy.yml` remains as an optional manual trigger for
+re-deploying without a new commit (e.g. after rotating a secret), and requires
+the `RENDER_DEPLOY_HOOK_URL` secret to do anything.
 
 ## What this does and doesn't fix
 

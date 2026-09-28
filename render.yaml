@@ -10,8 +10,9 @@
 #                          gap noted in PILOT_READINESS.md.
 #
 # Deploy: push this repo to Git, then in the Render Dashboard choose
-# "New > Blueprint" and point it at the repo. See HOSTING.md for the full
-# walkthrough, required secrets, and post-deploy steps.
+# "New > Blueprint" and point it at the repo. The app deploys from the `main`
+# branch (single-trunk workflow). See HOSTING.md for the full walkthrough,
+# required secrets, and post-deploy steps.
 #
 # Secrets (sync: false) are NOT set here — Render prompts for them once
 # during the initial Blueprint creation and they are never committed.
@@ -30,7 +31,7 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    branch: deploy/render
+    branch: main
     buildCommand: npm ci && npm run prisma:generate && npm run build
     preDeployCommand: npx prisma migrate deploy
     startCommand: NODE_ENV=production npm start
@@ -61,7 +62,7 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    branch: deploy/render
+    branch: main
     schedule: "*/15 * * * *"
     buildCommand: npm ci && npm run prisma:generate
     startCommand: NODE_ENV=production npm run worker -- all

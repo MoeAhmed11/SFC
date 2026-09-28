@@ -2,11 +2,11 @@ name: Deploy (Render)
 
 # Continuous delivery for ConsaPass.
 #
-# ConsaPass deploys on Render from the `deploy/render` branch, which carries
-# the PostgreSQL Prisma schema and production render.yaml. Render is configured
-# with `autoDeployTrigger: commit`, so **the primary deploy path is simply
-# pushing to `deploy/render`** — Render builds, migrates, and starts the app
-# and the cron worker automatically. See HOSTING.md.
+# ConsaPass deploys on Render from the `main` branch, which carries the
+# PostgreSQL Prisma schema and production render.yaml (single-trunk workflow).
+# Render is configured with `autoDeployTrigger: commit`, so **the primary
+# deploy path is simply pushing to `main`** — Render builds, migrates, and
+# starts the app and the cron worker automatically. See HOSTING.md.
 #
 # This workflow is an OPT-IN manual trigger that pings a Render Deploy Hook,
 # useful for re-deploying without a new commit (e.g. after rotating a secret in
@@ -18,8 +18,8 @@ name: Deploy (Render)
 #   2. In GitHub: Settings -> Secrets and variables -> Actions ->
 #      New repository secret, name it RENDER_DEPLOY_HOOK_URL, paste the URL.
 #
-# NOTE: this intentionally does not merge or push branches. Per project policy
-# `deploy/render` is never merged into `main`; promote changes to it directly.
+# NOTE: this intentionally does not merge or push branches. The project uses a
+# single trunk (`main`); Render redeploys automatically on every push to it.
 
 on:
   workflow_dispatch:
