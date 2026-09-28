@@ -1,13 +1,13 @@
-# Render Blueprint for SchoolConnect.
+# Render Blueprint for ConsaPass.
 #
 # Provisions three resources:
-#   1. schoolconnect-db      — managed Postgres (Frankfurt region for UK/EU
-#                              data residency — see HOSTING.md).
-#   2. schoolconnect-web     — the Next.js app (build, migrate, start).
-#   3. schoolconnect-worker  — a cron job that drains due notifications and
-#                              runs the retention sweep (scripts/worker.ts),
-#                              closing the "no background worker deployment"
-#                              gap noted in PILOT_READINESS.md.
+#   1. consapass-db      — managed Postgres (Frankfurt region for UK/EU
+#                          data residency — see HOSTING.md).
+#   2. consapass-web     — the Next.js app (build, migrate, start).
+#   3. consapass-worker  — a cron job that drains due notifications and
+#                          runs the retention sweep (scripts/worker.ts),
+#                          closing the "no background worker deployment"
+#                          gap noted in PILOT_READINESS.md.
 #
 # Deploy: push this repo to Git, then in the Render Dashboard choose
 # "New > Blueprint" and point it at the repo. See HOSTING.md for the full
@@ -15,16 +15,18 @@
 #
 # Secrets (sync: false) are NOT set here — Render prompts for them once
 # during the initial Blueprint creation and they are never committed.
+# RESEND_API_KEY is one of these: paste the real key into the Render
+# dashboard when prompted, never into this file.
 
 databases:
-  - name: schoolconnect-db
+  - name: consapass-db
     plan: basic-1gb
     region: frankfurt
     postgresMajorVersion: "16"
 
 services:
   - type: web
-    name: schoolconnect-web
+    name: consapass-web
     runtime: node
     region: frankfurt
     plan: starter
@@ -37,21 +39,25 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: schoolconnect-db
+          name: consapass-db
           property: connectionString
       - key: SESSION_SECRET
         generateValue: true
       - key: SESSION_TTL_SECONDS
         value: "28800"
       - key: EMAIL_PROVIDER
-        value: mock
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "ConsaPass <no-reply@consapass.co.uk>"
       - key: APP_BASE_URL
-        value: https://schoolconnect-web.onrender.com
+        value: https://consapass.co.uk
       - key: PARENT_LINK_BASE_URL
-        value: https://schoolconnect-web.onrender.com/c
+        value: https://consapass.co.uk/c
 
   - type: cron
-    name: schoolconnect-worker
+    name: consapass-worker
     runtime: node
     region: frankfurt
     plan: starter
@@ -62,9 +68,15 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: schoolconnect-db
+          name: consapass-db
           property: connectionString
       - key: EMAIL_PROVIDER
-        value: mock
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "ConsaPass <no-reply@consapass.co.uk>"
+      # Must match the web service's PARENT_LINK_BASE_URL — the worker sends
+      # reminders too.
       - key: PARENT_LINK_BASE_URL
-        value: https://schoolconnect-web.onrender.com/c
+        value: https://consapass.co.uk/c

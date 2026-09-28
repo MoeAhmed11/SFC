@@ -1,13 +1,9 @@
-# SchoolConnect
-
-> ⚠️ **"SchoolConnect" is a working name only, and is NOT cleared for use.**
-> At least two existing, live apps already trade under this exact name in the
-> same school-parent-communication market — see "Brand name" below. Do not
-> use this name in any public-facing material (app store listing, marketing,
-> a real sending domain) before choosing a distinct one.
+# ConsaPass
 
 School-facing SaaS for UK primary schools to create activities, collect
 parental consent digitally, track responses, and send deadline/event reminders.
+Domain: `consapass.co.uk` (confirmed; formal trademark clearance not yet
+checked — see "Brand name" below).
 
 This repository is being built in reviewable phases against
 [`school_consent_platform_kiro_spec.md`](./school_consent_platform_kiro_spec.md).
@@ -19,8 +15,8 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).
 > previously-open product decisions (spec Section 17) are resolved or
 > explicitly deferred, and sensitive endpoints are rate-limited — see
 > "Rate limiting" below. See [Pilot readiness](./PILOT_READINESS.md) for
-> what's still missing (real email delivery, production datastore, worker
-> deployment, a brand name).
+> what's still missing (verifying the Resend sending domain end-to-end,
+> production datastore, worker deployment).
 > Not production-ready and not a claim of legal/data-protection compliance
 > (spec Section 11 / 18.10). A UK data protection and safeguarding review is
 > required before any real use.
@@ -37,22 +33,26 @@ or an explicit, reasoned deferral. Full detail is in
 | 17.2 | Guardian rules | **Resolved earlier:** only the primary contact is notified/consents. |
 | 17.3–17.5 | Late/edited/offline consent | **Resolved earlier:** all disabled by default, school-configurable. |
 | 17.6–17.7 | Reminder defaults & timing | **Confirmed as implemented:** 7/3/1 days before deadline; 1 day before the event. |
-| 17.8 | Email provider/domain | **Kept configurable; tested as if configured.** See "Email provider configuration" below. |
+| 17.8 | Email provider/domain | **Resend selected and implemented; `consapass.co.uk` is the sending domain.** See "Email provider configuration" below. |
 | 17.9 | Data retention | **Defaulted to 3 years, per-school configurable.** See "Data retention" below. |
 | 17.10 | Pricing and pilot terms | **Deferred** to a later iteration, closer to production deployment. |
-| 17.11 | Brand name | **Flagged as a real conflict, not resolved.** See "Brand name" below. |
+| 17.11 | Brand name | **Renamed to ConsaPass** (domain `consapass.co.uk` confirmed). See "Brand name" below. |
 | 17.12 | Consent form scope | **Resolved earlier:** simple yes/no only. |
 
 ### Email provider configuration
 
-No specific email vendor or sending domain has been selected — that remains a
-real decision requiring credentials and approval (Section 18.3). What's built
-instead is the **configuration point** so that decision doesn't block anything
-else: `EMAIL_PROVIDER` (env var, default `mock`) selects the implementation via
-`createEmailProvider()` in `src/server/notifications/EmailProviderConfig.ts`.
-Selecting a provider name that isn't implemented yet (`smtp`, `resend`) fails
-loudly at startup rather than silently sending nothing — a misconfigured
-deployment should never fail silently.
+**Resend** has been selected as the email vendor, with `consapass.co.uk` as
+the confirmed sending domain (Section 18.3 approval given). `EMAIL_PROVIDER`
+(env var, default `mock`; `render.yaml` sets `resend`) selects the
+implementation via `createEmailProvider()` in
+`src/server/notifications/EmailProviderConfig.ts`. Selecting `resend` requires
+`RESEND_API_KEY` and `EMAIL_FROM` (see "Environment variables" below);
+selecting an unimplemented provider name (`smtp`) fails loudly at startup
+rather than silently sending nothing — a misconfigured deployment should
+never fail silently. `src/server/notifications/providers/resend.ts`
+implements `EmailProvider` against Resend's HTTP API directly (`fetch`, no
+SDK dependency), mapping Resend's error responses onto the existing
+`EmailDeliveryError` codes the notification worker already retries on.
 
 Per the product owner's direction, **tests exercise the app as if a real
 provider were configured**, not just against the trivial in-memory mock every
@@ -87,18 +87,14 @@ deployed worker (see `PILOT_READINESS.md`).
 
 ### Brand name
 
-A web search for existing use of "SchoolConnect" found at least two live,
-published apps already trading under this exact name in the same
-school-parent-communication market:
-[SchoolConnect on Google Play](https://play.google.com/store/apps/details?id=com.SchoolConnect.app)
-and
-[SchoolConnect ("School Staff") on the App Store](https://apps.apple.com/us/app/school-staff/id6477534537).
-Formal UK IPO/USPTO trademark register search wasn't available through this
-tool, so registration status is unconfirmed — but existing commercial use of
-the identical name in the identical market is itself a real collision risk
-independent of registration. This was not resolved as "keep the name"; it is
-flagged here and in `PILOT_READINESS.md` as needing a distinct name before any
-public-facing use.
+The original working name, "SchoolConnect," was flagged as a real collision
+risk — at least two existing, live apps traded under that exact name in the
+same school-parent-communication market. The product has been renamed to
+**ConsaPass**, with the domain `consapass.co.uk` confirmed by the product
+owner. A formal UK IPO/USPTO trademark register search still hasn't been
+performed through the tools available in this environment — the name is
+domain-confirmed, not formally trademark-cleared. Run that search before any
+large-scale public launch (app store listing, paid marketing).
 
 ## Staff invite-acceptance flow
 
@@ -310,8 +306,9 @@ accessibility, and operational monitoring").
   outstanding and only while the deadline is in the future; event reminders go
   only to recipients whose current consent is granted. Cancelling an event
   suppresses pending notifications and revokes links.
-- **Email via a provider interface:** a `EmailProvider` abstraction with an
-  in-memory mock adapter for dev/tests (no real provider wired, Section 18.3).
+- **Email via a provider interface:** an `EmailProvider` abstraction with an
+  in-memory mock adapter for dev/tests, plus a real Resend adapter for
+  production (`src/server/notifications/providers/resend.ts`).
   Accessible plain-text templates carry a secure link where action is needed and
   **never include child personal data** in the subject or body (Section 11).
   Secure links are issued fresh at send time.
@@ -459,8 +456,10 @@ placeholders only** — never commit real secrets (spec Section 18.7).
 | `DATABASE_URL` | Prisma datasource. Dev/test: `file:./dev.db`. Production: a `postgresql://` URL. |
 | `SESSION_SECRET` | Secret for session handling (32+ random bytes). |
 | `SESSION_TTL_SECONDS` | Session lifetime in seconds (default 28800 = 8h). |
-| `EMAIL_PROVIDER` | `mock` (default; sends nothing) — see "Email provider configuration" above. |
-| `APP_BASE_URL` | Base URL used to build staff invite / parent secure links (default `http://localhost:3000`). |
+| `EMAIL_PROVIDER` | `mock` (default; sends nothing) or `resend` — see "Email provider configuration" above. |
+| `RESEND_API_KEY` | Required when `EMAIL_PROVIDER=resend`. Secret; never commit a real value. |
+| `EMAIL_FROM` | Required when `EMAIL_PROVIDER=resend`, e.g. `ConsaPass <no-reply@consapass.co.uk>`. Must be on a domain verified in Resend (SPF/DKIM). |
+| `APP_BASE_URL` | Base URL used to build staff invite / parent secure links (default `http://localhost:3000`; production: `https://consapass.co.uk`). |
 | `NODE_ENV` | `development` / `test` / `production`. |
 
 ## Common commands
@@ -546,11 +545,13 @@ with a future `scheduledAt`, and the worker drains rows whose time has arrived.
 Idempotency comes from a unique `dedupeKey` per (event, pupil, guardian, type,
 slot) plus a status guard that never re-sends an already-sent row.
 
-In a real deployment the worker would run on a timer (cron/interval) or be
-swapped for a Redis-backed queue (e.g. BullMQ) behind the same interface; the
-service API would not change. Email uses a provider-agnostic interface with an
-in-memory **mock adapter** for development and tests — no real email provider is
-wired without credentials and approval (Section 18.3, open decision 17.8).
+In a real deployment the worker would run on a timer (cron/interval, currently
+a Render Cron Job — see `HOSTING.md`) or be swapped for a Redis-backed queue
+(e.g. BullMQ) behind the same interface; the service API would not change.
+Email uses a provider-agnostic interface: an in-memory **mock adapter** for
+development and tests, and a **Resend adapter** for real delivery
+(`EMAIL_PROVIDER=resend`, decision 17.8 — see "Email provider configuration"
+above).
 
 ## Rate limiting
 
@@ -609,7 +610,7 @@ Section 15), not an implemented deployment.
 
 ## Open decisions
 
-Resolved so far: primary-contact-only notifications, simple yes/no consent, and
-late/edited/offline consent disabled. Remaining open items (reminder defaults,
-email provider, data retention, pricing, brand, integrations) are tracked in
+Resolved so far: primary-contact-only notifications, simple yes/no consent,
+late/edited/offline consent disabled, email provider (Resend), and brand
+(ConsaPass). Remaining open items (pricing, SMIS integrations) are tracked in
 `IMPLEMENTATION_PLAN.md` §9 and the spec §17.

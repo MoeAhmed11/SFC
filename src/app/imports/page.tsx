@@ -24,7 +24,7 @@ export default async function ImportsPage() {
           </div>
           <a
             href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`}
-            download="schoolconnect-import-template.csv"
+            download="consapass-import-template.csv"
             className="btn btn--secondary btn--sm"
           >
             Download template

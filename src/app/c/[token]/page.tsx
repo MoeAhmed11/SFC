@@ -34,8 +34,8 @@ export default async function ConsentPage({ params }: PageProps) {
     <main className="auth-screen">
       <div className="auth-card">
         <div className="brandmark">
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </div>
 
         <h1 style={{ marginTop: "1.5rem" }}>{event.title}</h1>
@@ -99,8 +99,8 @@ function InvalidLink() {
     <main className="auth-screen">
       <div className="auth-card">
         <div className="brandmark">
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </div>
         <h1 style={{ marginTop: "1.5rem" }}>This link is no longer valid</h1>
         <p>

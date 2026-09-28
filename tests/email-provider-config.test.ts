@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
 import { createEmailProvider, resolveEmailProviderKind } from "@/server/notifications/EmailProviderConfig";
 import { MockEmailProvider } from "@/server/notifications/providers/mock";
+import { ResendEmailProvider } from "@/server/notifications/providers/resend";
 import { createEventDraft, publishEvent } from "@/server/services/eventService";
 import { processDueNotifications } from "@/server/services/notificationService";
 import { FakeHttpEmailProvider } from "./fixtures/fakeHttpEmailProvider";
@@ -21,9 +22,24 @@ describe("email provider configuration (spec decision 17.8)", () => {
     expect(() => resolveEmailProviderKind({ EMAIL_PROVIDER: "carrier-pigeon" })).toThrow(/Unknown EMAIL_PROVIDER/);
   });
 
-  it("fails loudly for a real provider that isn't implemented yet, instead of silently using the mock", () => {
+  it("fails loudly for a provider that isn't implemented, instead of silently using the mock", () => {
     expect(() => createEmailProvider({ EMAIL_PROVIDER: "smtp" })).toThrow(/not implemented yet/);
-    expect(() => createEmailProvider({ EMAIL_PROVIDER: "resend" })).toThrow(/not implemented yet/);
+  });
+
+  it("fails loudly if resend is selected without required credentials", () => {
+    expect(() => createEmailProvider({ EMAIL_PROVIDER: "resend" })).toThrow(/RESEND_API_KEY/);
+    expect(() =>
+      createEmailProvider({ EMAIL_PROVIDER: "resend", RESEND_API_KEY: "re_test_key" }),
+    ).toThrow(/EMAIL_FROM/);
+  });
+
+  it("builds a ResendEmailProvider when fully configured", () => {
+    const provider = createEmailProvider({
+      EMAIL_PROVIDER: "resend",
+      RESEND_API_KEY: "re_test_key",
+      EMAIL_FROM: "ConsaPass <no-reply@example.com>",
+    });
+    expect(provider).toBeInstanceOf(ResendEmailProvider);
   });
 });
 

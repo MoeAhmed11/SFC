@@ -1,8 +1,8 @@
 {
-  "name": "schoolconnect",
+  "name": "consapass",
   "version": "0.1.0",
   "private": true,
-  "description": "SchoolConnect — school consent & event reminder platform (MVP). Phase 1: tenant + staff auth foundation.",
+  "description": "ConsaPass — school consent & event reminder platform (MVP). Phase 1: tenant + staff auth foundation.",
   "type": "module",
   "scripts": {
     "dev": "next dev",

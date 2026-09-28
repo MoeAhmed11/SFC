@@ -6,9 +6,9 @@ export function StaffNav() {
   return (
     <header className="appbar">
       <div className="appbar__inner">
-        <Link href="/events" className="brandmark" aria-label="SchoolConnect home">
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+        <Link href="/events" className="brandmark" aria-label="ConsaPass home">
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </Link>
 
         <nav className="appbar__nav" aria-label="Main navigation">

@@ -18,7 +18,12 @@ export async function POST(request: NextRequest) {
     if (request.headers.get("accept")?.includes("application/json")) {
       return jsonOk({ ok: true });
     }
-    return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+    // Build the redirect from APP_BASE_URL (same convention as invite/parent
+    // links), not request.url — request.url reflects whatever host/port the
+    // Next.js process itself sees, which is wrong behind Render's internal
+    // port/proxying or any other reverse proxy in front of the app.
+    const base = process.env.APP_BASE_URL ?? "http://localhost:3000";
+    return NextResponse.redirect(new URL("/login", base), { status: 303 });
   } catch (err) {
     return errorResponse(err);
   }

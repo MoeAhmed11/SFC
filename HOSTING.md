@@ -1,21 +1,22 @@
-# Hosting SchoolConnect on Render
+# Hosting ConsaPass on Render
 
-This documents how to deploy SchoolConnect to [Render](https://render.com)
+This documents how to deploy ConsaPass to [Render](https://render.com)
 using the `render.yaml` Blueprint in the repo root. Read this alongside
-`PILOT_READINESS.md` — deploying does not resolve the gaps listed there
-(no real email provider, no CI, no UK data protection review, etc.). It only
-gives the app a place to run and closes the "no production datastore" and
-"no background worker deployment" gaps specifically.
+`PILOT_READINESS.md` — deploying does not resolve every gap listed there
+(no CI, no UK data protection review, etc.). It gives the app a place to
+run and closes the "no production datastore," "no background worker
+deployment," and (now that Resend is configured) "no real email provider"
+gaps specifically.
 
 ## What the Blueprint provisions
 
 `render.yaml` defines three resources, all in the `frankfurt` region (EU) —
 see [Data residency](#data-residency-why-frankfurt) below:
 
-1. **`schoolconnect-db`** — managed Render Postgres.
-2. **`schoolconnect-web`** — the Next.js app: builds, runs pending Prisma
+1. **`consapass-db`** — managed Render Postgres.
+2. **`consapass-web`** — the Next.js app: builds, runs pending Prisma
    migrations (`preDeployCommand`), then starts (`npm start`).
-3. **`schoolconnect-worker`** — a Render **Cron Job** running every 15
+3. **`consapass-worker`** — a Render **Cron Job** running every 15
    minutes. It runs `npm run worker -- all`, which calls
    `processDueNotifications` and `retentionService.runRetentionSweep` for
    every school (`scripts/worker.ts`). This is the scheduled process that
@@ -50,7 +51,7 @@ only this one line, plus regenerating migrations for Postgres:
 ```powershell
 # On the deploy branch, after changing the provider line above:
 Remove-Item -Recurse -Force prisma/migrations
-$env:DATABASE_URL = "postgresql://user:password@localhost:5432/schoolconnect_shadow"
+$env:DATABASE_URL = "postgresql://user:password@localhost:5432/consapass_shadow"
 npx prisma migrate dev --name init_postgres
 ```
 
@@ -90,21 +91,26 @@ build or pre-deploy steps. Don't move it back into `envVars`.
    Render can access (GitHub/GitLab).
 2. In the Render Dashboard: **New > Blueprint**, select the repo/branch.
    Render reads `render.yaml` and shows the three resources to create.
-3. Render will prompt for any `sync: false` secrets. This Blueprint doesn't
-   define any yet — `SESSION_SECRET` is auto-generated
+3. Render will prompt for the one `sync: false` secret this Blueprint
+   defines: **`RESEND_API_KEY`** (on both the web service and the worker
+   cron job). Paste the real key from the Resend dashboard when prompted —
+   never into `render.yaml` itself. `SESSION_SECRET` is auto-generated
    (`generateValue: true`) and `DATABASE_URL` is wired automatically from the
-   Postgres instance (`fromDatabase`). If you add a real email provider
-   later (see below), its API key should be added as a `sync: false` env var
-   so it's never committed.
-4. Click **Apply**. Render provisions Postgres first, then builds and
+   Postgres instance (`fromDatabase`), so neither needs manual entry.
+4. Before or shortly after applying, verify `consapass.co.uk` as a sending
+   domain in the Resend dashboard (adds SPF/DKIM DNS records) — `EMAIL_FROM`
+   is already set to `no-reply@consapass.co.uk` in `render.yaml`, so sends
+   will fail until that domain is verified.
+5. Click **Apply**. Render provisions Postgres first, then builds and
    deploys the web service and the cron job.
-5. Once the web service is live, update `APP_BASE_URL` and
-   `PARENT_LINK_BASE_URL` in `render.yaml` (and the cron job's copy) to match
-   the actual `onrender.com` hostname Render assigned, or your custom domain
-   — then commit and let Render redeploy. These are used to build staff
-   invite links and parent consent links, so they must be correct before
-   inviting real staff.
-6. Seed or create the first school. `prisma/seed.ts` creates synthetic demo
+6. Point the `consapass.co.uk` custom domain at the deployed web service
+   (Render Dashboard → the `consapass-web` service → **Settings > Custom
+   Domains**), and add the CNAME/A record Render gives you at your domain
+   registrar. `render.yaml` already assumes `https://consapass.co.uk` for
+   `APP_BASE_URL`/`PARENT_LINK_BASE_URL` — these build staff invite links and
+   parent consent links, so the custom domain must be live and resolving
+   before inviting real staff.
+7. Seed or create the first school. `prisma/seed.ts` creates synthetic demo
    data only — for a real school, use the staff signup/invite path once one
    admin account exists, or run a one-off script via Render's Shell tab.
 
@@ -153,11 +159,11 @@ conflict stop, which is intentional (a human decides, not the robot).
 - Production datastore (managed Postgres, replacing SQLite).
 - Scheduled execution of `processDueNotifications` and
   `runRetentionSweep` (previously callable functions with no caller).
+- Real email delivery via Resend (`EMAIL_PROVIDER=resend`), once
+  `consapass.co.uk` is verified in Resend and `RESEND_API_KEY` is set —
+  invite and reminder emails are actually sent instead of copy-pasted links.
 
 **Still open — unchanged by hosting choice, see PILOT_READINESS.md:**
-- No real email provider (`EMAIL_PROVIDER=mock` is set in `render.yaml`;
-  invite/consent links must still be copied and sent manually until a real
-  provider is implemented behind `EmailProvider`).
 - Rate limiting is in-process (`InMemoryRateLimiter`). Render web services
   and cron jobs are separate processes, and if the web service is ever
   scaled to more than one instance, per-instance limits stop being a
@@ -165,15 +171,13 @@ conflict stop, which is intentional (a human decides, not the robot).
   scaling web instances beyond 1.
 - No CI pipeline — tests/typecheck/build are still run manually before
   deploying.
-- Brand name collision risk (see PILOT_READINESS.md) is unrelated to
-  hosting and still unresolved.
 - No UK data protection/safeguarding review has been performed. Do not point
   this deployment at real pupil/guardian data before that review happens,
   regardless of where it's hosted.
 
 ## Data residency: why Frankfurt
 
-SchoolConnect handles UK pupil and guardian personal data under UK GDPR.
+ConsaPass handles UK pupil and guardian personal data under UK GDPR.
 Render's regions include `frankfurt` (EU) but no UK-specific region at time
 of writing; Frankfurt keeps data inside the EU rather than defaulting to
 Render's US regions (`oregon`, `ohio`, `virginia`). This is a reasonable
@@ -188,5 +192,8 @@ review may have its own requirements for where data is stored.
   the script's logic and imports work before relying on Render to run it.
 - The Postgres migration regeneration and the actual Render deploy were
   **not** run as part of this change (no Postgres instance or Render account
-  available in this environment) — verify steps 1–6 above against a real
-  Render account before treating this as pilot-ready.
+  available in this environment) — verify steps 1–7 above against a real
+  Render account before treating this as pilot-ready. The Resend send path
+  itself was verified separately with unit tests against a stubbed `fetch`
+  (`tests/resend-email-provider.test.ts`) — no real email has been sent to a
+  real recipient yet; do that once the domain is verified and the key is set.

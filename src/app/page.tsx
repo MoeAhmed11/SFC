@@ -7,8 +7,8 @@ export default function HomePage() {
     <main className="auth-screen">
       <div className="auth-card" style={{ textAlign: "center" }}>
         <div className="brandmark" style={{ justifyContent: "center", fontSize: "1.35rem" }}>
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </div>
 
         <h1 style={{ marginTop: "1.5rem" }}>Consent and reminders, sorted.</h1>

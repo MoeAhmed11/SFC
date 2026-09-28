@@ -28,10 +28,10 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     <main className="auth-screen">
       <div className="auth-card">
         <div className="brandmark">
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </div>
-        <h1 style={{ marginTop: "1.5rem" }}>Welcome to SchoolConnect</h1>
+        <h1 style={{ marginTop: "1.5rem" }}>Welcome to ConsaPass</h1>
         <p>
           {preview.staffName}, you have been invited to join <strong>{preview.schoolName}</strong>. Choose
           a password to activate your account.
@@ -47,8 +47,8 @@ function InvalidInvite() {
     <main className="auth-screen">
       <div className="auth-card">
         <div className="brandmark">
-          <span className="brandmark__logo">SC</span>
-          SchoolConnect
+          <span className="brandmark__logo">CP</span>
+          ConsaPass
         </div>
         <h1 style={{ marginTop: "1.5rem" }}>This invite link is no longer valid</h1>
         <p>

@@ -1,4 +1,4 @@
-// SchoolConnect — Prisma schema
+// ConsaPass — Prisma schema
 //
 // Phase 1 scope: tenant (School) + staff authentication (StaffUser) + audit
 // logging (AuditLog). Later phases add Pupil, Guardian, Event, ConsentForm,
