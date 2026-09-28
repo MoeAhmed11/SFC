@@ -75,6 +75,17 @@ form now returns/shows a working acceptance link
 still has no capability check — it remains internal/test/seed-only, now
 documented as such, and must never be given a route.
 
+**Invite emails are now sent automatically, not just copy-pasted.** Both
+`POST /api/staff` and the `/staff` invite form now call
+`staffInviteEmailService.sendStaffInviteEmail` right after issuing the invite
+token, which sends through whichever `EmailProvider` is configured
+(`EMAIL_PROVIDER=resend` in `render.yaml`, `mock` locally by default). The
+send is deliberately non-blocking: if it fails (misconfiguration, provider
+outage), invite creation still succeeds and the response/UI still returns the
+raw `inviteUrl` as a copy-paste fallback — an admin is never stuck unable to
+invite someone because of an email hiccup. See
+`tests/staff-invite-email.test.ts`.
+
 **Remaining practical limitation:** a real email provider (Resend) is now
 implemented behind `EmailProvider` and configured in `render.yaml`
 (`EMAIL_PROVIDER=resend`, `EMAIL_FROM=no-reply@consapass.co.uk`), with an
@@ -82,7 +93,8 @@ active Resend subscription. What's still unverified in this environment: the
 `consapass.co.uk` sending domain must be verified in the Resend dashboard
 (SPF/DKIM), and `RESEND_API_KEY` must be set as a real secret in Render (or
 locally in `.env`, never committed) before any email actually sends. Until
-both of those are done, treat sends as untested — see item 2 below.
+both of those are done, staff invite emails (and parent consent/reminder
+emails) will fail to send — see item 2 below.
 
 ## Other things that do NOT exist yet
 
@@ -96,9 +108,11 @@ both of those are done, treat sends as untested — see item 2 below.
    sending region for UK GDPR alignment, and a free tier — 3,000
    emails/month — that covers pilot volume). `render.yaml` now sets
    `EMAIL_PROVIDER=resend` and `EMAIL_FROM=ConsaPass <no-reply@consapass.co.uk>`
-   directly, and there's an active Resend subscription — but two things
-   still need doing before any email actually sends, per Section 18.3 (no
-   real integrations without approval):
+   directly, and there's an active Resend subscription. Both staff invite
+   emails (`staffInviteEmailService`) and parent consent/reminder emails
+   (`processDueNotifications`) go through this same provider now — but two
+   things still need doing before any email actually sends, per Section 18.3
+   (no real integrations without approval):
    1. Verify `consapass.co.uk` as a sending domain in the Resend dashboard
       (adds SPF/DKIM DNS records at the domain registrar).
    2. Set `RESEND_API_KEY` as the real secret value — as a Render

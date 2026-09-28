@@ -37,8 +37,9 @@ export function InviteStaffForm() {
       {state.inviteUrl ? (
         <div role="status" className="alert alert--success">
           <p style={{ marginTop: 0 }}>
-            Invited. There is no email provider configured yet, so send this link to them directly (it
-            expires in 7 days and works once):
+            {state.emailSent
+              ? "Invited. An email with the acceptance link has been sent to them (it expires in 7 days and works once). You can also share the link below directly if needed:"
+              : "Invited, but the invite email could not be sent. Send this link to them directly (it expires in 7 days and works once):"}
           </p>
           <code className="token-box">{state.inviteUrl}</code>
         </div>

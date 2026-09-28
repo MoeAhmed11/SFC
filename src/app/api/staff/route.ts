@@ -5,6 +5,8 @@ import { errorResponse, jsonOk } from "@/server/http/respond";
 import { checkRateLimit } from "@/server/http/rateLimitGuard";
 import { inviteStaff, listStaff } from "@/server/services/staffAdminService";
 import { issueInviteToken } from "@/server/services/inviteTokenService";
+import { sendStaffInviteEmail } from "@/server/services/staffInviteEmailService";
+import { findSchoolById } from "@/server/repositories/schoolRepository";
 import { ValidationError } from "@/server/errors";
 import { isStaffRole } from "@/server/domain";
 
@@ -45,14 +47,24 @@ export async function POST(request: NextRequest) {
 
     const staff = await inviteStaff(prisma, ctx, { name, email, role });
 
-    // Issue the acceptance token now, alongside creation. There is no real
-    // email provider (Section 18.3), so the invite link is surfaced directly
-    // in the response for now — an admin copies it to send manually. See
-    // PILOT_READINESS.md for the plan to deliver this by email instead.
+    // Issue the acceptance token now, alongside creation, and email it via
+    // the configured EmailProvider (Resend in production, mock in dev/test).
+    // The link is still returned in the response either way — if the send
+    // fails, an admin can copy-paste it as a fallback (Section 18.3 residual
+    // gap; see PILOT_READINESS.md).
     const issued = await issueInviteToken(prisma, ctx.schoolId, staff.id);
     const inviteUrl = `${inviteLinkBase()}/${issued.raw}`;
 
-    return jsonOk({ staff, inviteUrl }, 201);
+    const school = await findSchoolById(prisma, ctx.schoolId);
+    const { sent: emailSent } = await sendStaffInviteEmail({
+      to: staff.email,
+      schoolName: school?.name ?? "Your school",
+      schoolTimezone: school?.timezone ?? "Europe/London",
+      inviteUrl,
+      expiresAt: issued.expiresAt,
+    });
+
+    return jsonOk({ staff, inviteUrl, emailSent }, 201);
   } catch (err) {
     return errorResponse(err);
   }

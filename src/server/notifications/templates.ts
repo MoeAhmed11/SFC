@@ -116,3 +116,34 @@ export function buildEmail(to: string, type: NotificationType, ctx: TemplateCont
   const rendered = renderEmail(type, ctx);
   return { to, subject: rendered.subject, text: rendered.text };
 }
+
+// Staff invite-acceptance email. Kept separate from renderEmail/NotificationType
+// above because staff invites are sent synchronously from the invite request
+// itself, not queued as a Notification row processed by processDueNotifications.
+// Same accessibility/no-PII rules apply — this never contains pupil data.
+export interface StaffInviteEmailContext {
+  schoolName: string;
+  inviteUrl: string;
+  expiresAt: Date;
+  formatDate: (d: Date) => string;
+}
+
+export function buildStaffInviteEmail(to: string, ctx: StaffInviteEmailContext): EmailMessage {
+  return {
+    to,
+    subject: `You've been invited to join ${ctx.schoolName} on ConsaPass`,
+    text: [
+      `Hello,`,
+      ``,
+      `${ctx.schoolName} has invited you to join their ConsaPass account.`,
+      `Set your password to activate your account:`,
+      ``,
+      ctx.inviteUrl,
+      ``,
+      `This link expires on ${ctx.formatDate(ctx.expiresAt)} and can only be used once.`,
+      `If you weren't expecting this invite, you can ignore this email.`,
+      ``,
+      `Thank you.`,
+    ].join("\n"),
+  };
+}

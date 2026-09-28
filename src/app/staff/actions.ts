@@ -5,12 +5,15 @@ import { prisma } from "@/server/db";
 import { requireStaffContext } from "@/server/http/session";
 import { changeRole, deactivateStaff, inviteStaff } from "@/server/services/staffAdminService";
 import { issueInviteToken } from "@/server/services/inviteTokenService";
+import { sendStaffInviteEmail } from "@/server/services/staffInviteEmailService";
+import { findSchoolById } from "@/server/repositories/schoolRepository";
 import { isStaffRole } from "@/server/domain";
 import { AppError } from "@/server/errors";
 
 export interface StaffFormState {
   error?: string;
   inviteUrl?: string;
+  emailSent?: boolean;
 }
 
 function inviteLinkBase(): string {
@@ -33,18 +36,30 @@ export async function inviteStaffAction(
   }
 
   let inviteUrl: string;
+  let emailSent: boolean;
   try {
     const staff = await inviteStaff(prisma, ctx, { name, email, role });
-    // No real email provider exists yet (Section 18.3) — surface the invite
-    // link directly so an admin can send it manually in the meantime.
     const issued = await issueInviteToken(prisma, ctx.schoolId, staff.id);
     inviteUrl = `${inviteLinkBase()}/${issued.raw}`;
+
+    // Email it via the configured EmailProvider. The link above is still
+    // returned regardless of outcome, so an admin can copy-paste it as a
+    // fallback if the send fails (Section 18.3 residual gap).
+    const school = await findSchoolById(prisma, ctx.schoolId);
+    const result = await sendStaffInviteEmail({
+      to: staff.email,
+      schoolName: school?.name ?? "Your school",
+      schoolTimezone: school?.timezone ?? "Europe/London",
+      inviteUrl,
+      expiresAt: issued.expiresAt,
+    });
+    emailSent = result.sent;
   } catch (err) {
     if (err instanceof AppError) return { error: err.message };
     return { error: "Something went wrong. Please try again." };
   }
   revalidatePath("/staff");
-  return { inviteUrl };
+  return { inviteUrl, emailSent };
 }
 
 export async function changeRoleAction(
