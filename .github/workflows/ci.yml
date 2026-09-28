@@ -1,0 +1,64 @@
+name: CI
+
+# Continuous integration for ConsaPass.
+#
+# Runs on the `main` branch and on pull requests targeting it. `main` carries
+# the SQLite Prisma schema used for local dev/test; the tests set their own
+# `file:` DATABASE_URL and prepare the schema via `prisma db push` in
+# tests/globalSetup.ts, so no database server is needed in CI.
+#
+# Deployment (CD) is handled by Render, which auto-deploys the `deploy/render`
+# branch on every commit (see render.yaml / HOSTING.md). This workflow gates
+# what should reach that branch by keeping `main` green.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+
+    env:
+      # The app/build read these at import time. Tests override DATABASE_URL to
+      # a SQLite file themselves; this default keeps `next build` and Prisma
+      # generate happy without a real database.
+      DATABASE_URL: "file:./prisma/dev.db"
+      SESSION_SECRET: "ci-placeholder-secret-000000000000000000000000000000"
+      SESSION_TTL_SECONDS: "28800"
+      EMAIL_PROVIDER: "mock"
+      NODE_ENV: "test"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        # next build also typechecks app code; DATABASE_URL is set above.
+        run: npm run build

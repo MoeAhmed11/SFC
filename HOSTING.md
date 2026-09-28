@@ -108,6 +108,45 @@ build or pre-deploy steps. Don't move it back into `envVars`.
    data only — for a real school, use the staff signup/invite path once one
    admin account exists, or run a one-off script via Render's Shell tab.
 
+## Shipping updates: how a push redeploys the same services
+
+Once the Blueprint exists, Render redeploys the **same** services on every
+commit to `deploy/render` (`autoDeployTrigger: commit` in `render.yaml`). It
+matches services by name (the web service + worker cron job), so a push updates
+them **in place** — nothing is duplicated or torn down, and the Postgres
+instance is never recreated. Each deploy just rebuilds the app code and runs
+`npx prisma migrate deploy` (migrations, not a wipe).
+
+You normally work on `main`, though, and `main` is never deployed directly (it
+carries the SQLite schema). The `.github/workflows/promote-to-render.yml`
+GitHub Action bridges the two:
+
+- **Trigger:** any push to `main`.
+- **What it does:** rebases `deploy/render`'s deploy-only commits (Postgres
+  datasource, and any other deploy-only work such as the production email
+  provider and Blueprint branch pin) on top of the new `main`, then force-pushes
+  `deploy/render` with `--force-with-lease`. That push is what triggers Render
+  to redeploy.
+- **Net effect:** `git push origin main` → `deploy/render` updated → Render
+  rebuilds and redeploys the existing web + worker services. Same services, same
+  database, updated code.
+
+**Safety guarantees:**
+
+- If the rebase hits a conflict, the job **fails and pushes nothing** — the
+  deploy branch and production config are left untouched, and you reconcile the
+  branches by hand. This keeps the deliberate `main` (SQLite) vs `deploy/render`
+  (Postgres) split from ever being auto-merged the wrong way.
+- `--force-with-lease` refuses to push if `deploy/render` moved out of band
+  (e.g. a manual hotfix), so an automated run can't clobber someone else's push.
+- The Action uses the built-in `GITHUB_TOKEN` (`contents: write`); no extra
+  secret is required.
+
+This assumes `deploy/render` stays equal to `main` plus a small, linear stack of
+deploy-only commits — which is the current shape. If you ever add commits to
+`deploy/render` that also change files `main` changes, expect the occasional
+conflict stop, which is intentional (a human decides, not the robot).
+
 ## What this does and doesn't fix
 
 **Fixed by this Blueprint:**

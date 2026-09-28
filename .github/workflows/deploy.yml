@@ -1,0 +1,43 @@
+name: Deploy (Render)
+
+# Continuous delivery for ConsaPass.
+#
+# ConsaPass deploys on Render from the `deploy/render` branch, which carries
+# the PostgreSQL Prisma schema and production render.yaml. Render is configured
+# with `autoDeployTrigger: commit`, so **the primary deploy path is simply
+# pushing to `deploy/render`** — Render builds, migrates, and starts the app
+# and the cron worker automatically. See HOSTING.md.
+#
+# This workflow is an OPT-IN manual trigger that pings a Render Deploy Hook,
+# useful for re-deploying without a new commit (e.g. after rotating a secret in
+# the Render dashboard). It does nothing until you add the secret below.
+#
+# Setup:
+#   1. In the Render dashboard, open the consapass-web service ->
+#      Settings -> Deploy Hook, and copy the hook URL.
+#   2. In GitHub: Settings -> Secrets and variables -> Actions ->
+#      New repository secret, name it RENDER_DEPLOY_HOOK_URL, paste the URL.
+#
+# NOTE: this intentionally does not merge or push branches. Per project policy
+# `deploy/render` is never merged into `main`; promote changes to it directly.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  trigger-render:
+    name: Trigger Render deploy hook
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call deploy hook
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set — nothing to do."
+            echo "See the setup notes at the top of .github/workflows/deploy.yml."
+            exit 1
+          fi
+          echo "Triggering Render deploy..."
+          curl -fsS -X POST "$HOOK_URL"
+          echo "Deploy triggered."

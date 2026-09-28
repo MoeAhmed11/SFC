@@ -1,0 +1,102 @@
+name: Promote main to deploy/render
+
+# Automatic promotion: main -> deploy/render.
+#
+# Render deploys the SAME services (consapass-web, consapass-worker) from the
+# `deploy/render` branch on every commit (autoDeployTrigger: commit in
+# render.yaml). This workflow is the missing link between "push to GitHub" and
+# "Render redeploys": whenever `main` gets new commits, it replays the
+# deploy-only commits on top of the new `main` and updates `deploy/render`,
+# which triggers Render to rebuild and redeploy the existing services in place.
+# The Postgres database is never recreated — only the app code is redeployed.
+#
+# WHY REBASE (not merge / not overwrite):
+#   `deploy/render` = `main` + a small, linear stack of deploy-only commits
+#   (Postgres datasource, Resend email provider, bootstrap-admin script,
+#   Blueprint branch pin). Rebasing that stack onto the new `main` pulls in the
+#   new work while preserving every deploy-only change. A blind overwrite would
+#   destroy the Postgres schema and break production; a merge could silently
+#   resolve the schema.prisma / render.yaml differences the wrong way.
+#
+# SAFETY:
+#   - If the rebase hits a conflict, the job FAILS and pushes NOTHING. A human
+#     then reconciles the branches manually. Production config is never left
+#     half-written.
+#   - The push uses --force-with-lease, so it refuses to run if `deploy/render`
+#     moved underneath us (e.g. a manual push), rather than clobbering it.
+#
+# ONE-TIME SETUP: none beyond the default GITHUB_TOKEN, which already has
+# contents:write for pushing within this repo (granted via `permissions` below).
+
+on:
+  push:
+    branches: [main]
+
+# Never let two promotions race; queue them so deploy/render advances linearly.
+concurrency:
+  group: promote-to-render
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: Rebase deploy/render onto main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          # Need all branches and full history for a rebase, not a shallow clone.
+          fetch-depth: 0
+          ref: deploy/render
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase deploy/render onto latest main
+        id: rebase
+        run: |
+          set -euo pipefail
+          git fetch origin main deploy/render
+
+          echo "main is at:          $(git rev-parse origin/main)"
+          echo "deploy/render is at: $(git rev-parse origin/deploy/render)"
+
+          git checkout -B deploy/render origin/deploy/render
+
+          # Replay deploy/render's deploy-only commits on top of the new main.
+          # A conflict aborts and fails the job; nothing is pushed.
+          if ! git rebase origin/main; then
+            echo "::error::Rebase of deploy/render onto main hit a conflict. \
+            No changes were pushed. Reconcile the branches manually: the \
+            deploy-only commits (Postgres schema, Resend provider, bootstrap \
+            script, Blueprint pin) could not be replayed cleanly on top of the \
+            new main."
+            git rebase --abort || true
+            exit 1
+          fi
+
+      - name: Check whether deploy/render actually changed
+        id: changed
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/deploy/render)" ]; then
+            echo "No new commits to promote; deploy/render is already up to date."
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push updated deploy/render (triggers Render deploy)
+        if: steps.changed.outputs.push == 'true'
+        run: |
+          set -euo pipefail
+          # --force-with-lease: rewritten history must be force-pushed, but this
+          # refuses if deploy/render moved since we fetched it, so we never
+          # clobber an out-of-band change.
+          git push --force-with-lease=deploy/render:origin/deploy/render origin HEAD:deploy/render
+          echo "Promoted main -> deploy/render. Render will redeploy the existing services."
