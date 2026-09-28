@@ -2,8 +2,12 @@
 // fields, escaped quotes ("") inside quotes, commas and newlines within quotes,
 // and CRLF/LF line endings. Sufficient for roster import; no streaming (import
 // files are small in the MVP).
+//
+// Also tolerates tab-separated input: copying cells out of Excel/Google
+// Sheets puts TSV (not CSV) on the clipboard, and staff pasting a roster
+// directly from a spreadsheet is the expected workflow, not an edge case.
 
-export function parseCsv(input: string): string[][] {
+export function parseCsv(input: string, delimiter: "," | "\t" = ","): string[][] {
   const rows: string[][] = [];
   let field = "";
   let row: string[] = [];
@@ -45,7 +49,7 @@ export function parseCsv(input: string): string[][] {
       i += 1;
       continue;
     }
-    if (ch === ",") {
+    if (ch === delimiter) {
       pushField();
       i += 1;
       continue;
@@ -74,4 +78,13 @@ export function parseCsv(input: string): string[][] {
 
   // Drop trailing fully-empty rows (e.g. a trailing newline).
   return rows.filter((r) => !(r.length === 1 && r[0] === ""));
+}
+
+// Picks comma vs tab for pasted roster content. Excel/Google Sheets put TSV
+// on the clipboard when copying a cell range, so a tab-only first line (no
+// commas at all) is treated as tab-delimited; anything else defaults to CSV.
+export function detectDelimiter(input: string): "," | "\t" {
+  const firstLine = input.split(/\r\n|\r|\n/, 1)[0] ?? "";
+  if (firstLine.includes("\t") && !firstLine.includes(",")) return "\t";
+  return ",";
 }

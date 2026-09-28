@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
 import { ValidationError, ForbiddenError } from "@/server/errors";
-import { parseCsv } from "@/server/csv/parse";
+import { detectDelimiter, parseCsv } from "@/server/csv/parse";
 import { importTemplateCsv } from "@/server/csv/template";
 import { commitImport, validateImport } from "@/server/csv/import";
 import { listPupilsBySchool } from "@/server/repositories/pupilRepository";
@@ -27,6 +27,30 @@ describe("CSV parser", () => {
       ["x", "y"],
       ["1", "2"],
     ]);
+  });
+
+  it("parses tab-delimited input when delimiter is explicitly tab", () => {
+    const grid = parseCsv("a\tb\n1\t2\n", "\t");
+    expect(grid).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
+  });
+});
+
+describe("detectDelimiter", () => {
+  it("detects tab-separated content pasted from a spreadsheet", () => {
+    expect(detectDelimiter("pupil_first_name\tpupil_last_name\nAlex\tTaylor")).toBe("\t");
+  });
+
+  it("defaults to comma for normal CSV content", () => {
+    expect(detectDelimiter(`${HEADER}\nAlex,Taylor,,Year 3,Sam Taylor,sam@example.test,Parent`)).toBe(",");
+  });
+
+  it("defaults to comma when a line mixes tabs and commas", () => {
+    // A comma-delimited file with a stray literal tab inside a field should
+    // still be treated as CSV, not silently mis-split on tabs.
+    expect(detectDelimiter("a,b\tc\n1,2")).toBe(",");
   });
 });
 
@@ -65,6 +89,18 @@ describe("import validation (preview)", () => {
   it("the template is itself valid", async () => {
     const { adminCtx } = await createSchoolWithAdmin();
     const preview = validateImport(adminCtx, importTemplateCsv());
+    expect(preview.errors).toHaveLength(0);
+    expect(preview.validRows).toBe(1);
+  });
+
+  it("accepts the template content when tab-separated (pasted from Excel/Sheets)", async () => {
+    const { adminCtx } = await createSchoolWithAdmin();
+    const tsv = importTemplateCsv()
+      .trim()
+      .split("\n")
+      .map((line) => line.split(",").join("\t"))
+      .join("\n");
+    const preview = validateImport(adminCtx, tsv);
     expect(preview.errors).toHaveLength(0);
     expect(preview.validRows).toBe(1);
   });

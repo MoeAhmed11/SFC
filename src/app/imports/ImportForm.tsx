@@ -27,7 +27,10 @@ export function ImportForm() {
       <form action={validateAction} className="form">
         <div className="field">
           <label htmlFor="csv">CSV content</label>
-          <span className="hint">Paste the contents of your CSV file, including the header row.</span>
+          <span className="hint">
+            Paste the contents of your CSV file, including the header row. Pasting cells directly
+            from Excel or Google Sheets also works.
+          </span>
           <textarea
             id="csv"
             name="csv"

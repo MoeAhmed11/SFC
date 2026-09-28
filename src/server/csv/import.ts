@@ -4,7 +4,7 @@ import { recordAudit } from "@/server/audit/audit";
 import { ForbiddenError, ValidationError } from "@/server/errors";
 import { requireCapability, type StaffContext } from "@/server/tenancy/context";
 import { importRowSchema, type ImportRow } from "@/server/validation";
-import { parseCsv } from "@/server/csv/parse";
+import { detectDelimiter, parseCsv } from "@/server/csv/parse";
 import { resolveColumnIndexes, type ImportColumn } from "@/server/csv/template";
 import { createClassGroup, findClassByNameInSchool } from "@/server/repositories/classRepository";
 import { createPupil, findPupilByExternalRef } from "@/server/repositories/pupilRepository";
@@ -54,7 +54,7 @@ export interface ImportResult {
 }
 
 function parseAndValidate(csv: string): ImportPreview {
-  const grid = parseCsv(csv);
+  const grid = parseCsv(csv, detectDelimiter(csv));
   if (grid.length === 0) {
     return { totalRows: 0, validRows: 0, errors: [{ row: 0, message: "The file is empty." }], rows: [] };
   }
