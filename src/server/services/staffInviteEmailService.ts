@@ -44,6 +44,10 @@ export async function sendStaffInviteEmail(
     return { sent: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown_error";
+    // Logged (not just returned) so a silent failure is still visible in
+    // Render's log stream — the caller only surfaces a generic fallback UI
+    // message, which isn't enough to diagnose a misconfiguration remotely.
+    console.error("[staffInviteEmailService] failed to send invite email:", message);
     return { sent: false, error: message };
   }
 }
