@@ -161,7 +161,7 @@ describe("event RBAC and tenant isolation", () => {
       email: "org@example.test",
       role: "organiser",
     });
-    await activateWithPassword(prisma, school.id, organiser.id, { password: "organiser-pass-123" });
+    await activateWithPassword(prisma, school.id, organiser.id, { password: "Organiser-Pass-123!" });
     const organiserCtx = ctxFor(school.id, organiser.id, "organiser");
 
     const event = await createEventDraft(prisma, organiserCtx, { title: "Trip", ...futureEventDates() });

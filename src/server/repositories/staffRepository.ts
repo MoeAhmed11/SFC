@@ -34,10 +34,26 @@ export function findByIdInSchool(db: Db, schoolId: string, id: string) {
   return db.staffUser.findFirst({ where: { id, schoolId } });
 }
 
+// Excludes passwordHash: this is the roster-listing query, and its only
+// caller (listStaff in staffAdminService.ts) feeds the staff list API/page —
+// there is no reason for a password hash to ever leave the server via this
+// path. Other lookups here (findByEmailInSchool, findByIdInSchool) still
+// return the full row because auth code needs passwordHash to verify a login
+// or set a new one.
 export function listBySchool(db: Db, schoolId: string) {
   return db.staffUser.findMany({
     where: { schoolId },
     orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      schoolId: true,
+      name: true,
+      email: true,
+      role: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 }
 
@@ -66,5 +82,16 @@ export async function updateStaffScoped(
     where: { id, schoolId },
     data,
   });
+  return result.count;
+}
+
+// Scoped hard delete (Requirement 5). Cascades StaffSession and InviteToken
+// rows per the schema's onDelete: Cascade — safe to remove unconditionally.
+// The caller (deleteStaff in staffAdminService.ts) is responsible for
+// checking there are no Event rows referencing this staff user first, since
+// Event.createdById has no onDelete rule and would otherwise fail the FK
+// constraint (or, on a provider that allows it, silently orphan attribution).
+export async function deleteStaffScoped(db: Db, schoolId: string, id: string): Promise<number> {
+  const result = await db.staffUser.deleteMany({ where: { id, schoolId } });
   return result.count;
 }

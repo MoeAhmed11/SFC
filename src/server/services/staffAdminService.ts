@@ -1,4 +1,5 @@
 import type { Db } from "@/server/db";
+import { prisma } from "@/server/db";
 import { recordAudit } from "@/server/audit/audit";
 import { hashPassword } from "@/server/auth/password";
 import type { StaffRole } from "@/server/domain";
@@ -7,11 +8,13 @@ import { requireCapability, type StaffContext } from "@/server/tenancy/context";
 import { changeRoleSchema, inviteStaffSchema, setPasswordSchema } from "@/server/validation";
 import {
   createStaff,
+  deleteStaffScoped,
   findByEmailInSchool,
   findByIdInSchool,
   listBySchool,
   updateStaffScoped,
 } from "@/server/repositories/staffRepository";
+import { countEventsCreatedBy } from "@/server/repositories/eventRepository";
 
 // Staff administration actions (Section 7 FR-01). Every action:
 //  1. checks the actor's capability (RBAC),
@@ -108,6 +111,71 @@ export async function deactivateStaff(db: Db, ctx: StaffContext, staffUserId: st
     action: "staff.deactivated",
     entityType: "StaffUser",
     entityId: staffUserId,
+  });
+}
+
+// Hard-deletes a staff user (Requirement 5 of the MVP admin & consent
+// enhancements spec) — distinct from deactivateStaff above, which only flips
+// status. Rules, in order:
+//  1. Cannot delete yourself (mirrors the self-deactivation guard).
+//  2. A deactivated account can never be deleted — deletion is only possible
+//     from "invited" or "active" status.
+//  3. If the user has created any events, the row cannot be removed (no
+//     onDelete rule on Event.createdById — deleting would either fail the FK
+//     constraint or orphan "created by" attribution). In that case, the
+//     account is force-deactivated instead, and the caller is told why via a
+//     ConflictError rather than the delete silently doing nothing.
+// The audit entry is written BEFORE the row is removed (in the same
+// transaction) so it can capture identifying metadata that won't exist to
+// look up afterwards, since AuditLog.actorId has no FK — it stays valid, but
+// unresolvable to a name, once the StaffUser row is gone.
+export async function deleteStaff(db: Db, ctx: StaffContext, staffUserId: string) {
+  requireCapability(ctx, "staff.delete");
+  if (staffUserId === ctx.staffUserId) {
+    throw new ValidationError("You cannot delete your own account.");
+  }
+
+  const staff = await findByIdInSchool(db, ctx.schoolId, staffUserId);
+  if (!staff) throw new NotFoundError("Staff member not found.");
+
+  if (staff.status === "deactivated") {
+    throw new ValidationError("Deactivated accounts cannot be deleted.");
+  }
+
+  const eventCount = await countEventsCreatedBy(db, ctx.schoolId, staffUserId);
+  if (eventCount > 0) {
+    const count = await updateStaffScoped(db, ctx.schoolId, staffUserId, { status: "deactivated" });
+    if (count > 0) {
+      await recordAudit(db, {
+        schoolId: ctx.schoolId,
+        actorType: "staff",
+        actorId: ctx.staffUserId,
+        action: "staff.deactivated",
+        entityType: "StaffUser",
+        entityId: staffUserId,
+        metadata: { reason: "delete_requested_but_has_events", eventCount },
+      });
+    }
+    throw new ConflictError(
+      `This user created ${eventCount} event(s) and cannot be deleted. They have been deactivated instead.`,
+    );
+  }
+
+  await prisma.$transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    // Written before the delete so it can capture identifying details that
+    // won't be readable from the StaffUser row afterwards.
+    await recordAudit(tx, {
+      schoolId: ctx.schoolId,
+      actorType: "staff",
+      actorId: ctx.staffUserId,
+      action: "staff.deleted",
+      entityType: "StaffUser",
+      entityId: staffUserId,
+      metadata: { deletedName: staff.name, deletedEmail: staff.email, deletedRole: staff.role },
+    });
+    const count = await deleteStaffScoped(tx, ctx.schoolId, staffUserId);
+    if (count === 0) throw new NotFoundError("Staff member not found.");
   });
 }
 

@@ -6,7 +6,9 @@ import type { StaffRole } from "@/server/domain";
 
 // Test helpers. All data is synthetic (Section 18.4 — no real children's data).
 
-export const TEST_PASSWORD = "correct-horse-battery-staple";
+// Satisfies the classic-complexity password policy (Requirement 6 of the MVP
+// admin & consent enhancements spec): 12+ chars, upper, lower, digit, symbol.
+export const TEST_PASSWORD = "Correct-Horse-Battery-Staple9";
 
 // Remove all rows between tests for deterministic assertions. Order respects
 // FK dependencies (children before parents).

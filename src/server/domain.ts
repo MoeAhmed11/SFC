@@ -38,6 +38,14 @@ export const CAPABILITIES = [
   // Phase 7: school policy settings (consent editing / late / offline flags).
   // These change legal/consent behaviour, so they are admin-only (Section 5.1).
   "school.manage_settings",
+  // MVP admin & consent enhancements (see .kiro/specs/mvp-admin-consent-enhancements):
+  // Pupil edit/archive reuses "data.manage" (already admin-only) rather than a
+  // new capability, for consistency with the rest of dataService.ts (classes,
+  // guardians, relationships all gate on data.manage/data.view already).
+  "consent.resend", // reissue/resend an individual consent link — admin + organiser
+  "staff.delete", // hard-delete a staff user (conditional on no created events) — admin only
+  "staff.reset_password", // admin-triggered password reset link for another staff user — admin only
+  "audit.view", // audit log viewer — admin only
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
@@ -53,14 +61,24 @@ const ROLE_CAPABILITIES: Record<StaffRole, ReadonlySet<Capability>> = {
     "data.view",
     "data.import",
     "school.manage_settings",
+    "consent.resend",
+    "staff.delete",
+    "staff.reset_password",
+    "audit.view",
   ]),
   // Event organisers manage events and view rosters, but cannot administer
   // staff, mutate/import core school data, or change school policy (Section 5.2).
-  organiser: new Set<Capability>(["event.manage", "event.view", "data.view"]),
+  // They can, however, resend/reissue an individual consent link (Requirement 3
+  // in the MVP enhancements spec) since that's part of running their events.
+  organiser: new Set<Capability>(["event.manage", "event.view", "data.view", "consent.resend"]),
 };
 
 export const PUPIL_STATUSES = ["active", "archived"] as const;
 export type PupilStatus = (typeof PUPIL_STATUSES)[number];
+
+export function isPupilStatus(value: unknown): value is PupilStatus {
+  return typeof value === "string" && (PUPIL_STATUSES as readonly string[]).includes(value);
+}
 
 export const GUARDIAN_STATUSES = ["active", "archived"] as const;
 export type GuardianStatus = (typeof GUARDIAN_STATUSES)[number];
@@ -108,6 +126,12 @@ export const TOKEN_TTL_DAYS = 90;
 // is expected to be acted on promptly, and a long-lived unused invite is an
 // unnecessary standing credential.
 export const INVITE_TOKEN_TTL_DAYS = 7;
+
+// Password reset tokens (Requirement 7 of the MVP admin & consent enhancements
+// spec) expire much sooner than an invite — this is a recovery path for an
+// already-active account, not an onboarding step, so a short window limits
+// how long a leaked/intercepted reset link stays usable.
+export const PASSWORD_RESET_TOKEN_TTL_MINUTES = 60;
 
 // --- Notifications (Phase 6) ------------------------------------------------
 

@@ -22,6 +22,14 @@ export function listEventsBySchool(db: Db, schoolId: string) {
   return db.event.findMany({ where: { schoolId }, orderBy: { startsAt: "asc" } });
 }
 
+// Number of events a staff user has created (Requirement 5 of the MVP admin &
+// consent enhancements spec) — a hard-delete must be refused if this is > 0,
+// since Event.createdById has no onDelete rule and deleting the row would
+// either fail the FK constraint or silently lose "created by" attribution.
+export function countEventsCreatedBy(db: Db, schoolId: string, staffUserId: string) {
+  return db.event.count({ where: { schoolId, createdById: staffUserId } });
+}
+
 export function createEvent(db: Db, input: CreateEventInput) {
   return db.event.create({
     data: {

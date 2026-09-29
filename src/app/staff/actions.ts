@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db";
 import { requireStaffContext } from "@/server/http/session";
-import { changeRole, deactivateStaff, inviteStaff } from "@/server/services/staffAdminService";
+import { changeRole, deactivateStaff, deleteStaff, inviteStaff } from "@/server/services/staffAdminService";
 import { issueInviteToken } from "@/server/services/inviteTokenService";
 import { sendStaffInviteEmail } from "@/server/services/staffInviteEmailService";
+import { sendPasswordResetForStaff } from "@/server/services/passwordResetService";
 import { findSchoolById } from "@/server/repositories/schoolRepository";
 import { isStaffRole } from "@/server/domain";
 import { AppError } from "@/server/errors";
@@ -14,6 +15,7 @@ export interface StaffFormState {
   error?: string;
   inviteUrl?: string;
   emailSent?: boolean;
+  success?: string;
 }
 
 function inviteLinkBase(): string {
@@ -94,4 +96,46 @@ export async function deactivateStaffAction(
   }
   revalidatePath("/staff");
   return {};
+}
+
+// Hard-deletes a staff account (Requirement 5 of the MVP admin & consent
+// enhancements spec) — distinct from deactivateStaffAction above. deleteStaff
+// itself force-deactivates and throws a ConflictError (with an explanatory
+// message) if the account has created any events, so that message is
+// surfaced here rather than a generic failure.
+export async function deleteStaffAction(
+  staffId: string,
+  _prevState: StaffFormState,
+  _formData: FormData,
+): Promise<StaffFormState> {
+  const ctx = await requireStaffContext();
+  try {
+    await deleteStaff(prisma, ctx, staffId);
+  } catch (err) {
+    if (err instanceof AppError) return { error: err.message };
+    return { error: "Something went wrong. Please try again." };
+  }
+  revalidatePath("/staff");
+  return {};
+}
+
+// Admin-triggered password reset link for another staff member (Requirement
+// 7 of the MVP admin & consent enhancements spec, part 2). Admin-only —
+// sendPasswordResetForStaff checks staff.reset_password internally.
+export async function sendPasswordResetAction(
+  staffId: string,
+  _prevState: StaffFormState,
+  _formData: FormData,
+): Promise<StaffFormState> {
+  const ctx = await requireStaffContext();
+  try {
+    const result = await sendPasswordResetForStaff(prisma, ctx, staffId);
+    if (!result.sent) {
+      return { error: "The reset link was created, but the email could not be sent. Please try again." };
+    }
+  } catch (err) {
+    if (err instanceof AppError) return { error: err.message };
+    return { error: "Something went wrong. Please try again." };
+  }
+  return { success: "A password reset link has been sent." };
 }

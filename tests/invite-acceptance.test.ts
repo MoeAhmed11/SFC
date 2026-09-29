@@ -103,7 +103,7 @@ describe("invite preview", () => {
     const { school, adminCtx } = await createSchoolWithAdmin();
     const staff = await inviteOrganiser(adminCtx);
     const issued = await issueInviteToken(prisma, school.id, staff.id);
-    await acceptInvite(prisma, issued.raw, { password: "a-strong-password-123" });
+    await acceptInvite(prisma, issued.raw, { password: "A-Strong-Password-123!" });
 
     // Issue a second token for the now-active account and confirm the preview
     // still refuses (status is no longer "invited").
@@ -120,19 +120,20 @@ describe("accepting an invite", () => {
     const staff = await inviteOrganiser(adminCtx);
     const issued = await issueInviteToken(prisma, school.id, staff.id);
 
-    await acceptInvite(prisma, issued.raw, { password: "a-strong-password-123" });
+    await acceptInvite(prisma, issued.raw, { password: "A-Strong-Password-123!" });
 
     const updated = await prisma.staffUser.findUniqueOrThrow({ where: { id: staff.id } });
     expect(updated.status).toEqual("active");
     expect(updated.passwordHash).not.toBeNull();
 
-    // The token cannot be reused.
-    await expect(acceptInvite(prisma, issued.raw, { password: "another-password-123" })).rejects.toBeInstanceOf(
+    // The token cannot be reused (a well-formed password proves this is
+    // rejected because the token was already spent, not because of shape).
+    await expect(acceptInvite(prisma, issued.raw, { password: "Another-Password-123!" })).rejects.toBeInstanceOf(
       UnauthenticatedError,
     );
 
     // And the new staff member can now actually log in.
-    const login = await loginByEmail(prisma, { email: staff.email, password: "a-strong-password-123" });
+    const login = await loginByEmail(prisma, { email: staff.email, password: "A-Strong-Password-123!" });
     expect(login.context.staffUserId).toEqual(staff.id);
   });
 
@@ -147,7 +148,21 @@ describe("accepting an invite", () => {
     // Password validation happens BEFORE token consumption, so a mistaken
     // first attempt doesn't waste the invite — a valid retry on the same
     // token should still succeed.
-    await acceptInvite(prisma, issued.raw, { password: "a-strong-password-123" });
+    await acceptInvite(prisma, issued.raw, { password: "A-Strong-Password-123!" });
+    const updated = await prisma.staffUser.findUniqueOrThrow({ where: { id: staff.id } });
+    expect(updated.status).toEqual("active");
+  });
+
+  it("rejects a password that meets the length requirement but not complexity, WITHOUT burning the one-time token", async () => {
+    const { school, adminCtx } = await createSchoolWithAdmin();
+    const staff = await inviteOrganiser(adminCtx);
+    const issued = await issueInviteToken(prisma, school.id, staff.id);
+
+    // 12+ chars, but all lowercase and digits — no uppercase, no symbol.
+    await expect(acceptInvite(prisma, issued.raw, { password: "alllowercase123" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await acceptInvite(prisma, issued.raw, { password: "A-Strong-Password-123!" });
     const updated = await prisma.staffUser.findUniqueOrThrow({ where: { id: staff.id } });
     expect(updated.status).toEqual("active");
   });
@@ -156,7 +171,7 @@ describe("accepting an invite", () => {
     const { school, adminCtx } = await createSchoolWithAdmin();
     const staff = await inviteOrganiser(adminCtx);
     const issued = await issueInviteToken(prisma, school.id, staff.id);
-    await acceptInvite(prisma, issued.raw, { password: "a-strong-password-123" });
+    await acceptInvite(prisma, issued.raw, { password: "A-Strong-Password-123!" });
 
     const entry = await prisma.auditLog.findFirst({
       where: { schoolId: school.id, action: "staff.invite_accepted", entityId: staff.id },
@@ -165,7 +180,7 @@ describe("accepting an invite", () => {
   });
 
   it("rejects an unknown token outright", async () => {
-    await expect(acceptInvite(prisma, "garbage", { password: "a-strong-password-123" })).rejects.toBeInstanceOf(
+    await expect(acceptInvite(prisma, "garbage", { password: "A-Strong-Password-123!" })).rejects.toBeInstanceOf(
       UnauthenticatedError,
     );
   });

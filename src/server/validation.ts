@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONSENT_RESPONSES, SCHOOL_TYPES, STAFF_ROLES } from "@/server/domain";
+import { CONSENT_RESPONSES, PUPIL_STATUSES, SCHOOL_TYPES, STAFF_ROLES } from "@/server/domain";
 
 // Shared input validation (Section 11 Security: input validation). Emails are
 // normalised to lower-case + trimmed so tenant-scoped uniqueness is consistent.
@@ -11,10 +11,41 @@ export const emailSchema = z
   .email("A valid email address is required.")
   .max(254);
 
+// Classic complexity policy (Requirement 6): minimum length plus at least one
+// character from each of four classes. superRefine (not chained .refine) is
+// used deliberately so EVERY missing rule is reported at once, rather than
+// only the first failing check — a user missing both a digit and a symbol
+// should see both messages, not just the first one found.
 export const passwordSchema = z
   .string()
   .min(12, "Password must be at least 12 characters.")
-  .max(200);
+  .max(200)
+  .superRefine((value, ctx) => {
+    if (!/[a-z]/.test(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must include a lowercase letter.",
+      });
+    }
+    if (!/[A-Z]/.test(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must include an uppercase letter.",
+      });
+    }
+    if (!/[0-9]/.test(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must include a digit.",
+      });
+    }
+    if (!/[^A-Za-z0-9]/.test(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must include a symbol.",
+      });
+    }
+  });
 
 export const staffRoleSchema = z.enum(STAFF_ROLES);
 export const schoolTypeSchema = z.enum(SCHOOL_TYPES);
@@ -58,6 +89,19 @@ export const createPupilSchema = z.object({
   lastName: trimmedName(80),
   classGroupId: z.string().trim().min(1).optional(),
   externalRef: z.string().trim().max(80).optional(),
+});
+
+// Pupil roster editing (Requirement 1 of the MVP admin & consent enhancements
+// spec). externalRef is deliberately NOT a field here at all — it's the
+// school's own CSV-import matching key, so it is displayed but never
+// editable. Omitting it from the schema means it can never be accepted even
+// if a client sends it, rather than silently accepting-then-ignoring it.
+// classGroupId accepts null to explicitly clear a pupil's class.
+export const updatePupilSchema = z.object({
+  firstName: trimmedName(80).optional(),
+  lastName: trimmedName(80).optional(),
+  classGroupId: z.string().trim().min(1).nullable().optional(),
+  status: z.enum(PUPIL_STATUSES).optional(),
 });
 
 export const createGuardianSchema = z.object({
