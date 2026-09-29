@@ -46,6 +46,7 @@ model School {
   consentResponses ConsentResponse[]
   notifications    Notification[]
   inviteTokens     InviteToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("schools")
 }
@@ -70,6 +71,7 @@ model StaffUser {
   sessions      StaffSession[]
   createdEvents Event[]        @relation("EventCreatedBy")
   inviteTokens  InviteToken[]
+  passwordResetTokens PasswordResetToken[]
 
   // Email is unique per tenant, not globally: the same person could exist in
   // two schools. Enforces tenant-scoped uniqueness (Section 3.1).
@@ -310,6 +312,17 @@ model SecureAccessToken {
   tokenHash      String    @unique
   // Permitted action, e.g. "consent". Kept explicit for least privilege.
   permittedAction String   @default("consent")
+  // Set ONLY by the staff-facing resend/reissue flow (Requirement 3 of the MVP
+  // admin & consent enhancements spec), never by the normal bulk-issue path at
+  // publish time. Lets submitConsent allow a submission through this specific
+  // token even after the event's consentDeadline has passed, because staff
+  // deliberately re-sent this exact link (e.g. a parent changed their mind
+  // after the deadline, or missed the original email). This is an EXPLICIT
+  // flag rather than inferred by comparing timestamps, because consentDeadline
+  // can itself be edited after a token already exists — comparing createdAt
+  // against a deadline that may move backward in time is unreliable and can
+  // misclassify an ordinary bulk-issued token as deadline-exempt.
+  deadlineExempt Boolean   @default(false)
   expiresAt      DateTime
   revokedAt      DateTime?
   lastUsedAt     DateTime?
@@ -413,4 +426,31 @@ model InviteToken {
   @@index([schoolId])
   @@index([staffUserId])
   @@map("invite_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Staff password reset tokens (Requirement 7 of the MVP admin & consent
+// enhancements spec). Mirrors InviteToken's design closely: a high-entropy,
+// single-purpose, hash-stored token, bound to one staff user, consumable
+// exactly once. Two issuance paths share this same model: an admin sending a
+// reset link to another staff member, and a staff member's own self-serve
+// "forgot password" request — both produce an identical token shape, so the
+// consuming/reset flow doesn't need to know which path created it.
+// ---------------------------------------------------------------------------
+
+model PasswordResetToken {
+  id          String    @id @default(cuid())
+  schoolId    String
+  staffUserId String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  school    School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([staffUserId])
+  @@map("password_reset_tokens")
 }
