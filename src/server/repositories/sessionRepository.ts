@@ -27,3 +27,16 @@ export function revokeSessionByTokenHash(db: Db, tokenHash: string) {
     data: { revokedAt: new Date() },
   });
 }
+
+// Revokes every live session for a staff user in one go (Requirement 7 of the
+// MVP admin & consent enhancements spec): once a password reset actually
+// completes, all existing sessions must be invalidated — unlike
+// deactivateStaff, whose effect on sessions is implicit (resolveSession
+// checks staffUser.status), a password reset happens while the account stays
+// "active" throughout, so the session rows must be revoked directly here.
+export function revokeAllSessionsForStaff(db: Db, staffUserId: string) {
+  return db.staffSession.updateMany({
+    where: { staffUserId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}

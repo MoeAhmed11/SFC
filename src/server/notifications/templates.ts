@@ -147,3 +147,37 @@ export function buildStaffInviteEmail(to: string, ctx: StaffInviteEmailContext):
     ].join("\n"),
   };
 }
+
+// Staff password reset email (Requirement 7 of the MVP admin & consent
+// enhancements spec). Kept separate from renderEmail/NotificationType, same
+// reasoning as buildStaffInviteEmail: this is sent synchronously at
+// request/send time, not queued as a Notification row. Shared by both the
+// admin-sent and self-serve "forgot password" paths — the content is
+// deliberately generic either way, since it never reveals WHO triggered the
+// send (an admin, or the user themselves) to avoid leaking that distinction.
+export interface StaffPasswordResetEmailContext {
+  schoolName: string;
+  resetUrl: string;
+  expiresAt: Date;
+  formatDate: (d: Date) => string;
+}
+
+export function buildPasswordResetEmail(to: string, ctx: StaffPasswordResetEmailContext): EmailMessage {
+  return {
+    to,
+    subject: `Reset your ${ctx.schoolName} ConsaPass password`,
+    text: [
+      `Hello,`,
+      ``,
+      `A password reset was requested for your ConsaPass account at ${ctx.schoolName}.`,
+      `Set a new password here:`,
+      ``,
+      ctx.resetUrl,
+      ``,
+      `This link expires on ${ctx.formatDate(ctx.expiresAt)} and can only be used once.`,
+      `If you didn't request this, you can ignore this email — your password will not change unless you use the link above.`,
+      ``,
+      `Thank you.`,
+    ].join("\n"),
+  };
+}

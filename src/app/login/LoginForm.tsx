@@ -46,6 +46,10 @@ export function LoginForm() {
       <button type="submit" disabled={pending} className="btn btn--primary btn--block">
         {pending ? "Signing in…" : "Sign in"}
       </button>
+
+      <p style={{ marginTop: "1rem", textAlign: "center" }}>
+        <a href="/forgot-password">Forgot your password?</a>
+      </p>
     </form>
   );
 }
