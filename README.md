@@ -469,7 +469,8 @@ placeholders only** — never commit real secrets (spec Section 18.7).
 | `npm run dev` | Start the Next.js dev server (run manually in your terminal). |
 | `npm run build` | Production build. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm test` | Run the Vitest suite once. |
+| `npm test` | Run the Vitest suite once, against whatever datasource provider `prisma/schema.prisma` is currently set to. |
+| `npm run test:local` | Run the Vitest suite locally against SQLite, automatically and safely swapping the datasource provider for the run (see [Testing](#testing) below). |
 | `npm run test:watch` | Watch mode (run manually). |
 | `npm run prisma:migrate` | Create/apply a dev migration. |
 | `npm run seed` | Seed synthetic demo data. |
@@ -477,14 +478,27 @@ placeholders only** — never commit real secrets (spec Section 18.7).
 
 ## Testing
 
+`prisma/schema.prisma` is pinned to `provider = "postgresql"` on `main` (see
+`HOSTING.md`), and there is no local Postgres server in this dev setup — so
+running the plain `npm test` command locally will fail with a Prisma schema
+validation error. Use:
+
 ```bash
-npm test
+npm run test:local
 ```
 
+This runs `scripts/test-local.mjs`, which temporarily swaps the datasource
+provider to `sqlite`, regenerates the Prisma client, runs the full suite, then
+restores the schema to `postgresql` and regenerates again — safely, even if
+the tests fail or the run is interrupted. It never commits the swap.
+
+(`npm test` on its own is what CI/deploy environments with a real Postgres
+`DATABASE_URL` would use — it's left as a plain `vitest run` deliberately.)
+
 Tests run against a dedicated SQLite database (`prisma/test.db`) that is created
-fresh via `prisma db push` in `tests/setup.ts`, so they never touch `dev.db`.
-All fixtures are **synthetic** — no real children's or guardians' data
-(spec Section 18.4).
+fresh via `prisma db push` in `tests/globalSetup.ts`, so they never touch
+`dev.db`. All fixtures are **synthetic** — no real children's or guardians'
+data (spec Section 18.4).
 
 Covered (spec Section 18.6): tenant isolation, role permissions, session token
 expiry/revocation, audit logging, the Phase 2 data layer (CSV parsing, import

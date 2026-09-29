@@ -102,11 +102,56 @@ process) until the key was added there too. If email stops working for only
 one of the two send paths again, check that service's own env vars in the
 Render dashboard first.
 
+## MVP admin & consent enhancements (see .kiro/specs/mvp-admin-consent-enhancements)
+
+A follow-on set of 7 admin/consent user stories has been implemented on top
+of the base platform above (schema, services, routes, UI, and tests for
+each — see the spec's `requirements.md`/`design.md`/`tasks.md` for full
+detail):
+
+1. **Pupil roster: view, edit, archive** — `/pupils` list + `/pupils/[id]`
+   detail page. "Delete" is a soft archive (`Pupil.status`), never a hard
+   delete; `externalRef` is displayed but never editable. Admin-only.
+2. **Consent history per pupil, across all events** — shown on the pupil
+   detail page, including superseded (corrected) responses, not just the
+   current answer per event.
+3. **Resend/reissue an individual consent link** — a "Resend link" action per
+   event+guardian pairing on the pupil detail page. Available to admin AND
+   organiser. Works regardless of the consent deadline (only blocked once the
+   event itself has started, or is cancelled/completed) — this is also how a
+   parent who changed their mind after the deadline is handled: staff resends,
+   the parent submits through the normal `/c/[token]` form. A reissue revokes
+   the previous live token, which now surfaces a distinct "a newer link was
+   sent" message instead of the generic invalid-link error.
+4. **Hard-delete staff users** — admin-only, conditional: a staff user who has
+   never created an event can be permanently removed; one who has is
+   force-deactivated instead (with an explanatory error), and a deactivated
+   account can never be deleted at all.
+5. **Classic-complexity password policy** — invite acceptance and password
+   reset both require 12+ characters plus upper/lower/digit/symbol (was
+   length-only before).
+6. **Staff password reset, both admin-sent and self-serve** — `/forgot-password`
+   (public, always shows the same generic confirmation to prevent account
+   enumeration) and `/reset-password/[token]` (public, deliberately no
+   identity preview), plus a "Send password reset" action on the staff page
+   for admins. Sessions are revoked only once a reset actually completes, not
+   merely on request/send.
+7. **Audit log viewer** — `/audit`, admin-only, filterable (actor, action,
+   entity, date range) and paginated. Resolves actor names to the current
+   staff name where possible, falling back to "(deleted user)" once a
+   referenced staff row has been hard-deleted (point 4 above).
+
+This closes part of the "no self-service parent link reissue" gap noted
+below: staff-initiated resend now works past the deadline, though a parent
+still cannot reissue their own link without contacting the school.
+
 ## Other things that do NOT exist yet
 
-1. **No self-service parent link reissue.** If a parent's link expires or is
-   revoked, only staff can reissue it (`secureLinkService.reissueLink`, no UI
-   yet). The invalid-link page tells parents to contact the school.
+1. **No self-service parent link reissue.** A parent still cannot reissue
+   their own expired/revoked link without contacting the school — only staff
+   can (`secureLinkService.reissueLink`, wired to a UI action on the pupil
+   detail page as of the enhancements above, but still staff-initiated only).
+   The invalid-link page tells parents to contact the school.
 2. **No production datastore configured locally.** Development and tests use
    SQLite; the deployed app on Render uses managed Postgres (see `HOSTING.md`).
    The schema is pinned to `postgresql` on `main`, so local dev/test requires
@@ -182,3 +227,12 @@ Render dashboard first.
   as a genuine collision risk.
 - Rate limiting on login and token-consuming routes, plus a documented CSRF
   posture review — see `SECURITY_AND_PRIVACY_CHECKLIST.md`.
+- The MVP admin & consent enhancements (pupil roster CRUD, consent history,
+  consent link resend past the deadline, staff hard-delete, classic-complexity
+  passwords, admin-sent + self-serve password reset, audit log viewer) — see
+  the dedicated section above and `.kiro/specs/mvp-admin-consent-enhancements/`.
+  **Not yet committed or deployed**: this work adds two Prisma migrations
+  (`add_token_deadline_exempt`, `add_password_reset_tokens`) that must be
+  committed and pushed to `main` together before any of the resend-past-deadline
+  or password-reset features will work against the real Postgres deployment —
+  check `git status` before assuming this is live.

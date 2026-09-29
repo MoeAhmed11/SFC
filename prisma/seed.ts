@@ -13,7 +13,9 @@ import type { StaffContext } from "../src/server/tenancy/context";
 // responses, so a local demo has something to actually look at. Safe to run
 // repeatedly (idempotent by email/name where practical).
 
-const DEMO_PASSWORD = "change-me-in-real-life";
+// Satisfies the classic-complexity password policy (12+ chars, upper, lower,
+// digit, symbol) enforced by passwordSchema in src/server/validation.ts.
+const DEMO_PASSWORD = "Change-Me-In-Real-Life9!";
 
 async function seedSchool(name: string, schoolType: "state" | "independent") {
   const existing = await prisma.school.findFirst({ where: { name } });

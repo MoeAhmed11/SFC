@@ -43,20 +43,21 @@ against the live Render/Postgres deployment**, not locally or in CI. A proper
 dev environment (a local Postgres, or a scripted provider swap to SQLite) should
 be stood up before any real school data is onboarded.
 
-If you need to run the test suite locally in the meantime, temporarily flip the
-provider to SQLite (the schema is kept Postgres/SQLite-compatible), then revert
-it — do not commit the swap:
-
-```prisma
-datasource db {
-  provider = "sqlite"   // temporary, local only — revert before committing
-  url      = env("DATABASE_URL")
-}
-```
+If you need to run the test suite locally in the meantime, use:
 
 ```powershell
-npx prisma generate; npm test   # then: git checkout -- prisma/schema.prisma
+npm run test:local
 ```
+
+This runs `scripts/test-local.mjs`, which automates the provider swap: it
+temporarily flips `prisma/schema.prisma`'s datasource to `sqlite`, regenerates
+the Prisma client, runs the full Vitest suite, then restores the schema to
+`postgresql` and regenerates again — all in a `finally` block (and on
+SIGINT/SIGTERM), so the swap is never accidentally left in place or committed.
+It refuses to run if `prisma/schema.prisma` already has uncommitted changes,
+so it never clobbers a real in-progress schema edit. `npm test` itself is left
+untouched (still a plain `vitest run` against whatever provider is currently
+configured), since that's the one that would run in CI/deploy contexts.
 
 Migrations for Postgres live in `prisma/migrations/`. Render's
 `preDeployCommand` (`npx prisma migrate deploy`) applies them to the real
