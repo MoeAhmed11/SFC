@@ -10,6 +10,22 @@ export function countRecipientsForEvent(db: Db, schoolId: string, eventId: strin
   return db.eventRecipient.count({ where: { schoolId, eventId } });
 }
 
+// Every event-recipient pairing for a pupil, across all events, with the
+// event and guardian joined in. Used by the pupil detail page (Requirement 3
+// of the MVP admin & consent enhancements spec) to offer a "resend link"
+// action per event+guardian the pupil is registered for. Ordered by event
+// start so upcoming activities surface first.
+export function listRecipientPairingsForPupil(db: Db, schoolId: string, pupilId: string) {
+  return db.eventRecipient.findMany({
+    where: { schoolId, pupilId },
+    orderBy: { event: { startsAt: "asc" } },
+    include: {
+      event: { select: { id: true, title: true, startsAt: true, status: true } },
+      guardian: { select: { id: true, name: true, email: true } },
+    },
+  });
+}
+
 // Creates recipient rows, skipping duplicates so publish is safe to re-run.
 export function createRecipients(
   db: Db,

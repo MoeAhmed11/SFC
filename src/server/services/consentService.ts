@@ -114,7 +114,14 @@ export async function submitConsent(
   const school = await findSchoolById(db, binding.schoolId);
   const settings = parseSchoolSettings(school?.settings);
 
-  if (event.consentDeadline.getTime() <= Date.now() && !settings.allowLateConsent) {
+  // A token deliberately reissued by staff (Requirement 3: resending a link
+  // to a parent who wants to change their mind, or missed the original
+  // email, works up until the event itself starts — not just until the
+  // consent deadline) is staff-authorised to bypass the deadline gate via the
+  // explicit deadlineExempt flag set at reissue time. A normally bulk-issued
+  // token is unaffected and still subject to the existing rule.
+  const deadlinePassed = event.consentDeadline.getTime() <= Date.now();
+  if (deadlinePassed && !binding.deadlineExempt && !settings.allowLateConsent) {
     throw new ConflictError("The consent deadline for this activity has passed.");
   }
 
@@ -167,14 +174,34 @@ export async function submitConsent(
 
 // --- helpers ---------------------------------------------------------------
 
+// Validates a token and throws the right error for the caller to surface.
+// "revoked" gets a DISTINCT message (Requirement 3) — the parent held a real
+// link that the school itself invalidated by sending a newer one, so telling
+// them that is helpful, not an information leak. Every other failure
+// (not_found/expired) still shares one generic message (FR-04).
 async function requireValidToken(db: Db, rawToken: string): Promise<TokenBinding> {
-  const binding = await validateToken(db, rawToken);
-  if (!binding) throw invalidLink();
-  return binding;
+  const result = await validateToken(db, rawToken);
+  if (!result.ok) {
+    if (result.reason === "revoked") throw supersededLink();
+    throw invalidLink();
+  }
+  return result.binding;
 }
 
-// A single, generic error for every invalid-link case so the response cannot be
-// used to probe which records exist (FR-04).
+// A single, generic error for a missing/expired/unknown token so the response
+// cannot be used to probe which records exist (FR-04).
 function invalidLink() {
   return new UnauthenticatedError("This link is invalid, expired, or has been revoked.");
+}
+
+// Distinct message for a token that was revoked because staff sent a newer
+// link for the same recipient (Requirement 3.5). Not a generic-message
+// exception to FR-04's leak-avoidance rule in practice: reaching this branch
+// requires having possessed the real, previously-valid raw token, which an
+// attacker guessing/probing tokens could not have.
+function supersededLink() {
+  return new UnauthenticatedError(
+    "This link is no longer valid because a newer link was sent for this consent request. " +
+      "Please check your email for the most recent message, or contact the school.",
+  );
 }

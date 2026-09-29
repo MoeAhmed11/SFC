@@ -129,4 +129,28 @@ describe("consent submission", () => {
       UnauthenticatedError,
     );
   });
+
+  it("shows a distinct 'newer link sent' message when a resend has revoked the old link (Requirement 3.5)", async () => {
+    const { raw, eventId, pupilId, guardianId, school, adminCtx } = await publishedWithToken();
+    const { reissueLink } = await import("@/server/services/secureLinkService");
+    // Staff resends — this revokes the original link the parent already had.
+    await reissueLink(prisma, adminCtx, { eventId, pupilId, guardianId });
+
+    await expect(submitConsent(prisma, raw, { response: "granted" })).rejects.toThrowError(
+      /newer link was sent/i,
+    );
+    // Still the same generic error class as any other invalid link, so a
+    // client-side check by error TYPE alone still behaves as before — only
+    // the message differs for this specific, non-attacker-discoverable case.
+    await expect(submitConsent(prisma, raw, { response: "granted" })).rejects.toBeInstanceOf(
+      UnauthenticatedError,
+    );
+    void school;
+  });
+
+  it("does NOT show the 'newer link' message for a plain unknown/garbage token", async () => {
+    await expect(submitConsent(prisma, "totally-made-up-token", { response: "granted" })).rejects.not.toThrowError(
+      /newer link was sent/i,
+    );
+  });
 });

@@ -35,6 +35,15 @@ export interface TokenBinding {
   pupilId: string;
   guardianId: string;
   permittedAction: string;
+  // True only for tokens minted via the staff-facing reissue flow
+  // (Requirement 3 of the MVP admin & consent enhancements spec) — never for
+  // the normal bulk-issue path at publish/send time. submitConsent uses this
+  // to let a deliberately-reissued link work even after the event's
+  // consentDeadline has passed. This is an explicit, stored flag rather than
+  // something inferred from timestamps, because consentDeadline can itself be
+  // edited after a token already exists — comparing createdAt against a
+  // deadline that may move is unreliable.
+  deadlineExempt: boolean;
 }
 
 function tokenExpiry(): Date {
@@ -42,7 +51,8 @@ function tokenExpiry(): Date {
 }
 
 // Issues a token for a recipient. Used internally at publish time and by the
-// staff-facing reissue flow (which requires event.manage).
+// staff-facing reissue flow (which requires event.manage). deadlineExempt
+// defaults to false — only reissueLink below sets it true.
 export async function issueTokenForRecipient(
   db: Db,
   schoolId: string,
@@ -50,6 +60,7 @@ export async function issueTokenForRecipient(
   pupilId: string,
   guardianId: string,
   action: TokenAction = "consent",
+  options?: { deadlineExempt?: boolean },
 ): Promise<IssuedToken> {
   const raw = randomBytes(TOKEN_BYTES).toString("base64url");
   const expiresAt = tokenExpiry();
@@ -61,12 +72,18 @@ export async function issueTokenForRecipient(
     tokenHash: hashToken(raw),
     permittedAction: action,
     expiresAt,
+    deadlineExempt: options?.deadlineExempt ?? false,
   });
   return { raw, expiresAt };
 }
 
-// Staff-facing safe reissue (FR-04). Revokes any existing live tokens for the
-// recipient and issues a fresh one. Requires event.manage + tenant checks.
+// Staff-facing safe reissue (FR-04, and Requirement 3 of the MVP admin &
+// consent enhancements spec). Revokes any existing live tokens for the
+// recipient and issues a fresh one marked deadlineExempt — this is always a
+// deliberate staff action, so the resulting link is authorised to work even
+// past the event's consentDeadline (the resend-service layer above this still
+// blocks resending once the event itself has started). Requires
+// event.manage + tenant checks.
 export async function reissueLink(
   db: Db,
   ctx: StaffContext,
@@ -88,6 +105,8 @@ export async function reissueLink(
     input.eventId,
     input.pupilId,
     input.guardianId,
+    "consent",
+    { deadlineExempt: true },
   );
 
   await recordAudit(db, {
@@ -101,24 +120,38 @@ export async function reissueLink(
   return issued;
 }
 
-// Validates a raw token entirely server-side. Returns the binding when valid,
-// or null for ANY failure (missing, expired, revoked). Callers surface a single
-// generic message so the response never reveals whether a record exists
-// (FR-04 information-leak avoidance). Updates lastUsedAt on success.
-export async function validateToken(db: Db, rawToken: string): Promise<TokenBinding | null> {
-  if (!rawToken) return null;
+// Result of validating a raw token. "revoked" is distinguished from
+// "not_found"/"expired" because a revoked token is different from a
+// guessed/malicious one: the parent held a REAL, valid link that the school
+// itself invalidated by sending a newer one (Requirement 3 of the MVP admin &
+// consent enhancements spec) — telling them so isn't an information leak (it
+// requires having possessed the real prior token in the first place), and is
+// genuinely helpful ("check your email for a newer link"). "not_found" and
+// "expired" remain merged into one generic case deliberately, so a guessed or
+// stale token still can't be used to probe which records exist (FR-04).
+export type TokenValidationResult =
+  | { ok: true; binding: TokenBinding }
+  | { ok: false; reason: "not_found" | "expired" | "revoked" };
+
+// Validates a raw token entirely server-side. Updates lastUsedAt on success.
+export async function validateToken(db: Db, rawToken: string): Promise<TokenValidationResult> {
+  if (!rawToken) return { ok: false, reason: "not_found" };
   const record = await findTokenByHash(db, hashToken(rawToken));
-  if (!record) return null;
-  if (record.revokedAt) return null;
-  if (record.expiresAt.getTime() <= Date.now()) return null;
+  if (!record) return { ok: false, reason: "not_found" };
+  if (record.revokedAt) return { ok: false, reason: "revoked" };
+  if (record.expiresAt.getTime() <= Date.now()) return { ok: false, reason: "expired" };
 
   await markTokenUsed(db, record.id);
   return {
-    tokenId: record.id,
-    schoolId: record.schoolId,
-    eventId: record.eventId,
-    pupilId: record.pupilId,
-    guardianId: record.guardianId,
-    permittedAction: record.permittedAction,
+    ok: true,
+    binding: {
+      tokenId: record.id,
+      schoolId: record.schoolId,
+      eventId: record.eventId,
+      pupilId: record.pupilId,
+      guardianId: record.guardianId,
+      permittedAction: record.permittedAction,
+      deadlineExempt: record.deadlineExempt,
+    },
   };
 }

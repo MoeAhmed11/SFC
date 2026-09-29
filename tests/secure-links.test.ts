@@ -52,34 +52,43 @@ describe("token validation", () => {
     const { school, eventId, pupilId, guardianId } = await setup();
     const issued = await issueTokenForRecipient(prisma, school.id, eventId, pupilId, guardianId);
 
-    const binding = await validateToken(prisma, issued.raw);
-    expect(binding).not.toBeNull();
-    expect(binding!.eventId).toEqual(eventId);
-    expect(binding!.pupilId).toEqual(pupilId);
-    expect(binding!.guardianId).toEqual(guardianId);
+    const result = await validateToken(prisma, issued.raw);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok result");
+    expect(result.binding.eventId).toEqual(eventId);
+    expect(result.binding.pupilId).toEqual(pupilId);
+    expect(result.binding.guardianId).toEqual(guardianId);
+    // Normal bulk-issue path (issueTokenForRecipient without options) never
+    // sets deadlineExempt — only the staff reissue flow does.
+    expect(result.binding.deadlineExempt).toBe(false);
 
     const stored = await prisma.secureAccessToken.findUnique({ where: { tokenHash: hashToken(issued.raw) } });
     expect(stored!.lastUsedAt).not.toBeNull();
   });
 
-  it("rejects unknown, expired, and revoked tokens", async () => {
-    const { school, eventId, pupilId, guardianId } = await setup();
-    expect(await validateToken(prisma, "totally-made-up")).toBeNull();
-    expect(await validateToken(prisma, "")).toBeNull();
+  it("rejects an unknown or missing token with reason not_found", async () => {
+    expect(await validateToken(prisma, "totally-made-up")).toEqual({ ok: false, reason: "not_found" });
+    expect(await validateToken(prisma, "")).toEqual({ ok: false, reason: "not_found" });
+  });
 
+  it("rejects an expired token with reason expired", async () => {
+    const { school, eventId, pupilId, guardianId } = await setup();
     const expired = await issueTokenForRecipient(prisma, school.id, eventId, pupilId, guardianId);
     await prisma.secureAccessToken.update({
       where: { tokenHash: hashToken(expired.raw) },
       data: { expiresAt: new Date(Date.now() - 1000) },
     });
-    expect(await validateToken(prisma, expired.raw)).toBeNull();
+    expect(await validateToken(prisma, expired.raw)).toEqual({ ok: false, reason: "expired" });
+  });
 
+  it("rejects a revoked token with reason revoked (distinct from expired/not_found)", async () => {
+    const { school, eventId, pupilId, guardianId } = await setup();
     const revoked = await issueTokenForRecipient(prisma, school.id, eventId, pupilId, guardianId);
     await prisma.secureAccessToken.update({
       where: { tokenHash: hashToken(revoked.raw) },
       data: { revokedAt: new Date() },
     });
-    expect(await validateToken(prisma, revoked.raw)).toBeNull();
+    expect(await validateToken(prisma, revoked.raw)).toEqual({ ok: false, reason: "revoked" });
   });
 });
 
@@ -91,9 +100,29 @@ describe("reissue", () => {
     const first = await issueTokenForRecipient(prisma, school.id, eventId, pupilId, guardianId);
 
     const reissued = await reissueLink(prisma, adminCtx, { eventId, pupilId, guardianId });
-    // Old token no longer valid; new one works.
-    expect(await validateToken(prisma, first.raw)).toBeNull();
-    expect(await validateToken(prisma, reissued.raw)).not.toBeNull();
+    // Old token no longer valid, and specifically reported as revoked (not
+    // merely not-found), since a reissue explicitly revokes it.
+    expect(await validateToken(prisma, first.raw)).toEqual({ ok: false, reason: "revoked" });
+    const newResult = await validateToken(prisma, reissued.raw);
+    expect(newResult.ok).toBe(true);
+  });
+
+  it("marks a reissued token's binding as deadlineExempt, unlike a normally issued token", async () => {
+    const { adminCtx, school, eventId, pupilId, guardianId } = await setup();
+    const reissued = await reissueLink(prisma, adminCtx, { eventId, pupilId, guardianId });
+
+    const result = await validateToken(prisma, reissued.raw);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok result");
+    expect(result.binding.deadlineExempt).toBe(true);
+
+    // A separately, normally bulk-issued token for the same recipient is
+    // unaffected — deadlineExempt is per-token, not somehow global.
+    const normal = await issueTokenForRecipient(prisma, school.id, eventId, pupilId, guardianId);
+    const normalResult = await validateToken(prisma, normal.raw);
+    expect(normalResult.ok).toBe(true);
+    if (!normalResult.ok) throw new Error("expected ok result");
+    expect(normalResult.binding.deadlineExempt).toBe(false);
   });
 
   it("cannot reissue for an event in another school", async () => {

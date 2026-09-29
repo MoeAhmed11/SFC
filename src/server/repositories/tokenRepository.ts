@@ -11,6 +11,7 @@ export interface CreateTokenInput {
   tokenHash: string;
   permittedAction: string;
   expiresAt: Date;
+  deadlineExempt?: boolean;
 }
 
 export function createAccessToken(db: Db, input: CreateTokenInput) {
