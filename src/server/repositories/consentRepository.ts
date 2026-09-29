@@ -57,3 +57,19 @@ export function listResponsesForRecipient(
     orderBy: { submittedAt: "asc" },
   });
 }
+
+// Every consent response for a pupil ACROSS ALL EVENTS, newest first,
+// including superseded rows (Requirement 2 of the MVP admin & consent
+// enhancements spec — a full audit trail of every change of mind, not just
+// the current answer). Includes the event title and guardian name so the
+// pupil detail page can render a readable history without extra lookups.
+export function listConsentHistoryForPupil(db: Db, schoolId: string, pupilId: string) {
+  return db.consentResponse.findMany({
+    where: { schoolId, pupilId },
+    orderBy: { submittedAt: "desc" },
+    include: {
+      event: { select: { id: true, title: true } },
+      guardian: { select: { id: true, name: true } },
+    },
+  });
+}

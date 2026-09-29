@@ -15,11 +15,17 @@ export function StaffNav() {
           <Link href="/events" className="navlink">
             Events
           </Link>
+          <Link href="/pupils" className="navlink">
+            Pupils
+          </Link>
           <Link href="/imports" className="navlink">
             Import roster
           </Link>
           <Link href="/staff" className="navlink">
             Staff
+          </Link>
+          <Link href="/audit" className="navlink">
+            Audit log
           </Link>
         </nav>
 

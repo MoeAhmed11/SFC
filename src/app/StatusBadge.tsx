@@ -14,9 +14,13 @@ const VARIANT: Record<string, string> = {
   invited: "badge--info",
   outstanding: "badge--warning",
   pending: "badge--warning",
-  // staff
+  // consent history state (current vs superseded — Requirement 2)
+  current: "badge--info",
+  superseded: "badge--neutral",
+  // staff / pupils
   active: "badge--success",
   deactivated: "badge--neutral",
+  archived: "badge--neutral",
 };
 
 export function StatusBadge({ status }: { status: string }) {

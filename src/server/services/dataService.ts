@@ -1,6 +1,7 @@
 import type { Db } from "@/server/db";
 import { prisma } from "@/server/db";
 import { recordAudit } from "@/server/audit/audit";
+import type { PupilStatus } from "@/server/domain";
 import { ConflictError, NotFoundError, ValidationError } from "@/server/errors";
 import { requireCapability, type StaffContext } from "@/server/tenancy/context";
 import {
@@ -8,6 +9,7 @@ import {
   createGuardianSchema,
   createPupilSchema,
   createRelationshipSchema,
+  updatePupilSchema,
 } from "@/server/validation";
 import {
   createClassGroup,
@@ -19,7 +21,10 @@ import {
   createPupil,
   findPupilByIdInSchool,
   listPupilsBySchool,
+  updatePupilScoped,
 } from "@/server/repositories/pupilRepository";
+import { listConsentHistoryForPupil } from "@/server/repositories/consentRepository";
+import { listRecipientPairingsForPupil } from "@/server/repositories/eventRecipientRepository";
 import {
   createGuardian,
   findGuardianByEmailInSchool,
@@ -107,9 +112,96 @@ export async function createPupilRecord(
   return created;
 }
 
-export async function listPupils(db: Db, ctx: StaffContext) {
+export async function listPupils(
+  db: Db,
+  ctx: StaffContext,
+  filter: { classGroupId?: string; status?: PupilStatus } = {},
+) {
   requireCapability(ctx, "data.view");
-  return listPupilsBySchool(db, ctx.schoolId);
+  return listPupilsBySchool(db, ctx.schoolId, filter);
+}
+
+export async function getPupil(db: Db, ctx: StaffContext, pupilId: string) {
+  requireCapability(ctx, "data.view");
+  const pupil = await findPupilByIdInSchool(db, ctx.schoolId, pupilId);
+  if (!pupil) throw new NotFoundError("Pupil not found.");
+  return pupil;
+}
+
+// Every consent response for a pupil across ALL events, including superseded
+// rows (Requirement 2) — the full history of changes of mind, not just the
+// current answer per event. Same capability as viewing the pupil themselves.
+export async function getPupilConsentHistory(db: Db, ctx: StaffContext, pupilId: string) {
+  requireCapability(ctx, "data.view");
+  const pupil = await findPupilByIdInSchool(db, ctx.schoolId, pupilId);
+  if (!pupil) throw new NotFoundError("Pupil not found.");
+  return listConsentHistoryForPupil(db, ctx.schoolId, pupilId);
+}
+
+// Every event+guardian pairing a pupil is registered for (Requirement 3) —
+// used to offer a "resend consent link" action per pairing on the pupil
+// detail page. Same capability as viewing the pupil.
+export async function getPupilEventRecipients(db: Db, ctx: StaffContext, pupilId: string) {
+  requireCapability(ctx, "data.view");
+  const pupil = await findPupilByIdInSchool(db, ctx.schoolId, pupilId);
+  if (!pupil) throw new NotFoundError("Pupil not found.");
+  return listRecipientPairingsForPupil(db, ctx.schoolId, pupilId);
+}
+
+// Edits a pupil's roster details (Requirement 1). externalRef is never
+// accepted here — updatePupilSchema has no such field — so it can never be
+// changed through this path, only set at CSV-import time.
+export async function updatePupil(
+  db: Db,
+  ctx: StaffContext,
+  pupilId: string,
+  input: { firstName?: string; lastName?: string; classGroupId?: string | null; status?: PupilStatus },
+) {
+  requireCapability(ctx, "data.manage");
+  const parsed = updatePupilSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid pupil details.");
+
+  const existing = await findPupilByIdInSchool(db, ctx.schoolId, pupilId);
+  if (!existing) throw new NotFoundError("Pupil not found.");
+
+  // If a class is given (and non-null), it must belong to the same school
+  // (tenant guard) — mirrors createPupilRecord's check above.
+  if (parsed.data.classGroupId) {
+    const cls = await findClassByIdInSchool(db, ctx.schoolId, parsed.data.classGroupId);
+    if (!cls) throw new NotFoundError("Class not found in this school.");
+  }
+
+  const count = await updatePupilScoped(db, ctx.schoolId, pupilId, parsed.data);
+  if (count === 0) throw new NotFoundError("Pupil not found.");
+
+  await recordAudit(db, {
+    schoolId: ctx.schoolId,
+    actorType: "staff",
+    actorId: ctx.staffUserId,
+    action: "pupil.updated",
+    entityType: "Pupil",
+    entityId: pupilId,
+    metadata: parsed.data,
+  });
+}
+
+// "Deleting" a pupil archives them (status -> "archived") rather than
+// removing the row, preserving consent/event history (Requirement 1.4).
+// True hard-delete is a distinct, separate action, not exposed here.
+export async function archivePupil(db: Db, ctx: StaffContext, pupilId: string) {
+  requireCapability(ctx, "data.manage");
+
+  const count = await updatePupilScoped(db, ctx.schoolId, pupilId, { status: "archived" });
+  if (count === 0) throw new NotFoundError("Pupil not found.");
+
+  await recordAudit(db, {
+    schoolId: ctx.schoolId,
+    actorType: "staff",
+    actorId: ctx.staffUserId,
+    action: "pupil.archived",
+    entityType: "Pupil",
+    entityId: pupilId,
+  });
 }
 
 // --- Guardians --------------------------------------------------------------
