@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: "/imports", label: "Import roster" },
   { href: "/staff", label: "Staff" },
   { href: "/audit", label: "Audit log" },
+  { href: "/settings", label: "Settings" },
 ];
 
 // Shared top navigation for all authenticated staff pages, so the app is
