@@ -21,14 +21,21 @@
   /* Neutrals */
   --ink: #131a2b;
   --ink-soft: #3d4666;
-  --muted: #6b7391;
+  /* Darkened from #6b7391 to clear WCAG AA (4.5:1) on --canvas and
+     --surface-2, not just --surface -- the original shade dropped to
+     ~4.3:1 on those backgrounds, which this text-color token is used
+     against in several places (captions, stat labels, hints). */
+  --muted: #5a6384;
   --line: #e4e7f1;
   --line-strong: #cfd4e6;
   --surface: #ffffff;
   --surface-2: #f7f8fc;
   --canvas: #f2f4fb;
 
-  /* Semantic */
+  /* Semantic. Each has a -50 (surface tint), -500 (mid accent) and -700
+     (text/strong) step. UI pairs -50 backgrounds with -700 text for AA
+     contrast; the -500 steps are palette anchors (used for borders/fills,
+     not as text on white, where they only meet the 3:1 graphics threshold). */
   --success-50: #ecfdf3;
   --success-500: #12a150;
   --success-700: #0a7038;
@@ -37,7 +44,12 @@
   --danger-700: #991b1b;
   --warning-50: #fffbeb;
   --warning-500: #d97706;
-  --warning-700: #92400e;
+  /* Lightened from #92400e so the rendered warning text is distinguishable
+     from danger-700 by LIGHTNESS, not just hue — under deuteranopia both
+     reds/ambers collapse toward olive, so a lightness gap is what keeps
+     "declined" (danger) and "outstanding" (warning) badges apart. Still
+     clears WCAG AA on --warning-50 (4.84:1) and --surface (5.02:1). */
+  --warning-700: #b45309;
 
   /* Shape & depth */
   --radius-sm: 8px;
@@ -252,6 +264,12 @@ code {
   text-decoration: none;
 }
 
+.navlink[aria-current="page"] {
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-weight: 600;
+}
+
 .appbar__spacer {
   margin-left: auto;
 }
@@ -274,6 +292,19 @@ code {
 
 .card__title {
   margin-top: 0;
+}
+
+.card--muted {
+  background: var(--surface-2);
+}
+
+.card--success {
+  border-color: var(--success-500);
+}
+
+.card--empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
 }
 
 /* Stat tiles */
@@ -461,6 +492,62 @@ code {
 .textarea--code {
   font-family: var(--font-mono);
   font-size: 0.88rem;
+}
+
+/* Line-number gutter for the CSV import textarea, so a reported row error
+   can be located visually instead of only by a count (audit finding). */
+.textarea-gutter-wrap {
+  display: flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.textarea-gutter-wrap:has(textarea:focus) {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+
+.textarea-gutter {
+  flex: 0 0 auto;
+  padding: 0.6rem 0.5rem 0.6rem 0.75rem;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  text-align: right;
+  overflow-y: hidden;
+  user-select: none;
+  min-width: 2.5rem;
+}
+
+.textarea--gutter {
+  border: none;
+  border-radius: 0;
+  line-height: 1.5;
+}
+
+.textarea--gutter:focus {
+  box-shadow: none;
+}
+
+/* A <button> styled to read as an inline link, for actions embedded in
+   running text (e.g. "jump to row" references in a list). */
+.link-as-text {
+  font: inherit;
+  color: var(--brand-600);
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-as-text:hover {
+  color: var(--brand-700);
 }
 
 fieldset.fieldset {
@@ -696,6 +783,10 @@ fieldset.fieldset > legend {
   color: #fff;
 }
 
+.chip[aria-current="true"]:hover {
+  border-color: var(--brand-700);
+}
+
 /* --------------------------------------------------------------------------
    Marketing / landing page
    -------------------------------------------------------------------------- */
@@ -824,7 +915,9 @@ fieldset.fieldset > legend {
   position: absolute;
   left: 0;
   top: 0;
-  color: var(--success-500);
+  /* --success-700 (7.3:1 on white), not --success-500 (3.37:1, no margin)
+     so the glyph stays legible for low-vision users. */
+  color: var(--success-700);
   font-weight: 700;
 }
 
@@ -849,6 +942,19 @@ fieldset.fieldset > legend {
 /* --------------------------------------------------------------------------
    Utilities
    -------------------------------------------------------------------------- */
+
+/* Visually hidden but still announced by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .toolbar {
   display: flex;
