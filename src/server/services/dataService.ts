@@ -9,6 +9,7 @@ import {
   createGuardianSchema,
   createPupilSchema,
   createRelationshipSchema,
+  updateGuardianSchema,
   updatePupilSchema,
 } from "@/server/validation";
 import {
@@ -30,9 +31,11 @@ import {
   findGuardianByEmailInSchool,
   findGuardianByIdInSchool,
   listGuardiansBySchool,
+  updateGuardianScoped,
 } from "@/server/repositories/guardianRepository";
 import {
   clearPrimaryForPupil,
+  listRelationshipsForPupilWithGuardian,
   upsertRelationship,
 } from "@/server/repositories/relationshipRepository";
 
@@ -148,6 +151,16 @@ export async function getPupilEventRecipients(db: Db, ctx: StaffContext, pupilId
   return listRecipientPairingsForPupil(db, ctx.schoolId, pupilId);
 }
 
+// Every guardian linked to a pupil, with contact details and relationship
+// flags, for the pupil detail page's guardian edit section. Same capability
+// (and tenant guard) as viewing the pupil itself.
+export async function getPupilGuardians(db: Db, ctx: StaffContext, pupilId: string) {
+  requireCapability(ctx, "data.view");
+  const pupil = await findPupilByIdInSchool(db, ctx.schoolId, pupilId);
+  if (!pupil) throw new NotFoundError("Pupil not found.");
+  return listRelationshipsForPupilWithGuardian(db, ctx.schoolId, pupilId);
+}
+
 // Edits a pupil's roster details (Requirement 1). externalRef is never
 // accepted here — updatePupilSchema has no such field — so it can never be
 // changed through this path, only set at CSV-import time.
@@ -237,6 +250,42 @@ export async function createGuardianRecord(
 export async function listGuardians(db: Db, ctx: StaffContext) {
   requireCapability(ctx, "data.view");
   return listGuardiansBySchool(db, ctx.schoolId);
+}
+
+// Edits a guardian's contact details (name/email). Mirrors updatePupil's
+// shape: tenant-checked, partial input, audited. Email changes are
+// re-checked for per-school uniqueness, excluding the guardian's own
+// existing row, mirroring createGuardianRecord's uniqueness check above.
+export async function updateGuardian(
+  db: Db,
+  ctx: StaffContext,
+  guardianId: string,
+  input: { name?: string; email?: string },
+) {
+  requireCapability(ctx, "data.manage");
+  const parsed = updateGuardianSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid guardian details.");
+
+  const existing = await findGuardianByIdInSchool(db, ctx.schoolId, guardianId);
+  if (!existing) throw new NotFoundError("Guardian not found.");
+
+  if (parsed.data.email && parsed.data.email !== existing.email) {
+    const emailTaken = await findGuardianByEmailInSchool(db, ctx.schoolId, parsed.data.email);
+    if (emailTaken) throw new ConflictError("A guardian with this email already exists.");
+  }
+
+  const count = await updateGuardianScoped(db, ctx.schoolId, guardianId, parsed.data);
+  if (count === 0) throw new NotFoundError("Guardian not found.");
+
+  await recordAudit(db, {
+    schoolId: ctx.schoolId,
+    actorType: "staff",
+    actorId: ctx.staffUserId,
+    action: "guardian.updated",
+    entityType: "Guardian",
+    entityId: guardianId,
+    metadata: parsed.data,
+  });
 }
 
 // --- Relationships ----------------------------------------------------------

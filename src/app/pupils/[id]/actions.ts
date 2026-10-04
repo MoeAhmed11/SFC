@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db";
 import { requireStaffContext } from "@/server/http/session";
-import { archivePupil, updatePupil } from "@/server/services/dataService";
+import { archivePupil, linkGuardianToPupil, updateGuardian, updatePupil } from "@/server/services/dataService";
 import { resendConsentLink } from "@/server/services/consentResendService";
 import { AppError } from "@/server/errors";
 import type { PupilStatus } from "@/server/domain";
@@ -59,6 +59,68 @@ export async function archivePupilAction(
   revalidatePath(`/pupils/${pupilId}`);
   revalidatePath("/pupils");
   return { success: "Pupil archived." };
+}
+
+// Edits a linked guardian's contact details (name/email) from the pupil
+// detail page. pupilId is only used to know which page to revalidate — the
+// edit itself is scoped to the guardian's own id/school, same as the pupil
+// edit action above.
+export async function updateGuardianAction(
+  pupilId: string,
+  guardianId: string,
+  _prevState: PupilActionState,
+  formData: FormData,
+): Promise<PupilActionState> {
+  const ctx = await requireStaffContext();
+
+  const name = String(formData.get("name") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+
+  if (!name || !email) {
+    return { error: "Guardian name and email are required." };
+  }
+
+  try {
+    await updateGuardian(prisma, ctx, guardianId, { name, email });
+  } catch (err) {
+    if (err instanceof AppError) return { error: err.message };
+    return { error: "Something went wrong. Please try again." };
+  }
+  revalidatePath(`/pupils/${pupilId}`);
+  return { success: "Guardian updated." };
+}
+
+// Edits an existing pupil↔guardian relationship's flags/label (relationship
+// label, authorised, primary contact) from the pupil detail page.
+// linkGuardianToPupil is an upsert, so calling it again for an existing pair
+// edits that pair rather than creating a duplicate — see
+// relationshipRepository.ts's upsertRelationship.
+export async function updateRelationshipAction(
+  pupilId: string,
+  guardianId: string,
+  _prevState: PupilActionState,
+  formData: FormData,
+): Promise<PupilActionState> {
+  const ctx = await requireStaffContext();
+
+  const relationship = String(formData.get("relationship") ?? "").trim();
+  const isAuthorised = formData.get("isAuthorised") === "on";
+  const isPrimaryContact = formData.get("isPrimaryContact") === "on";
+
+  try {
+    await linkGuardianToPupil(prisma, ctx, {
+      pupilId,
+      guardianId,
+      relationship: relationship || undefined,
+      isAuthorised,
+      isPrimaryContact,
+    });
+  } catch (err) {
+    if (err instanceof AppError) return { error: err.message };
+    return { error: "Something went wrong. Please try again." };
+  }
+  revalidatePath(`/pupils/${pupilId}`);
+  return { success: "Guardian relationship updated." };
 }
 
 export async function resendConsentLinkAction(

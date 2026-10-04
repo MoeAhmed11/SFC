@@ -21,6 +21,21 @@ export function listRelationshipsForPupil(db: Db, schoolId: string, pupilId: str
   return db.pupilGuardianRelationship.findMany({ where: { schoolId, pupilId } });
 }
 
+// Every guardian linked to a pupil, with the guardian's contact details
+// joined in. Used by the pupil detail page to show/edit each linked
+// guardian's name, email, and relationship flags in one place. Ordered by
+// primary contact first, then name, so the primary contact is always the
+// first row shown.
+export function listRelationshipsForPupilWithGuardian(db: Db, schoolId: string, pupilId: string) {
+  return db.pupilGuardianRelationship.findMany({
+    where: { schoolId, pupilId },
+    orderBy: [{ isPrimaryContact: "desc" }, { guardian: { name: "asc" } }],
+    include: {
+      guardian: { select: { id: true, name: true, email: true, status: true } },
+    },
+  });
+}
+
 // Clears the primary-contact flag on all of a pupil's relationships. Used to
 // enforce "at most one primary contact per pupil" before setting a new one.
 export function clearPrimaryForPupil(db: Db, schoolId: string, pupilId: string) {

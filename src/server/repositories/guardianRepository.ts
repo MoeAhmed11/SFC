@@ -19,3 +19,19 @@ export function createGuardian(db: Db, input: { schoolId: string; name: string; 
     data: { schoolId: input.schoolId, name: input.name, email: input.email },
   });
 }
+
+// Scoped update: the where clause is filtered by both id AND schoolId via
+// updateMany so a cross-tenant id can never match (same pattern as
+// updatePupilScoped in pupilRepository.ts).
+export async function updateGuardianScoped(
+  db: Db,
+  schoolId: string,
+  id: string,
+  data: { name?: string; email?: string },
+): Promise<number> {
+  const result = await db.guardian.updateMany({
+    where: { id, schoolId },
+    data,
+  });
+  return result.count;
+}

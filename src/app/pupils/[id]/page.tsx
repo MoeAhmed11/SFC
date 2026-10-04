@@ -2,8 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/server/db";
 import { getStaffContext } from "@/server/http/session";
-import { getPupil, getPupilConsentHistory, getPupilEventRecipients, listClasses } from "@/server/services/dataService";
+import {
+  getPupil,
+  getPupilConsentHistory,
+  getPupilEventRecipients,
+  getPupilGuardians,
+  listClasses,
+} from "@/server/services/dataService";
 import { NotFoundError } from "@/server/errors";
+import { GuardianActions } from "./GuardianActions";
 import { PupilActions } from "./PupilActions";
 import { ResendConsentButton } from "./ResendConsentButton";
 import { StaffNav } from "../../StaffNav";
@@ -46,10 +53,11 @@ export default async function PupilDetailPage({ params }: PageProps) {
     throw err;
   }
 
-  const [classes, consentHistory, recipientPairings] = await Promise.all([
+  const [classes, consentHistory, recipientPairings, guardianLinks] = await Promise.all([
     listClasses(prisma, ctx),
     getPupilConsentHistory(prisma, ctx, id),
     getPupilEventRecipients(prisma, ctx, id),
+    getPupilGuardians(prisma, ctx, id),
   ]);
 
   return (
@@ -87,6 +95,37 @@ export default async function PupilDetailPage({ params }: PageProps) {
             classes={classes.map((c) => ({ id: c.id, name: c.name }))}
           />
         </section>
+
+        <h2 style={{ marginTop: "2rem" }}>Guardians</h2>
+        <p className="muted">
+          Edit a linked guardian&apos;s contact details, or change who is the authorised primary
+          contact for this pupil. Only the primary contact receives consent requests and reminders.
+        </p>
+
+        {guardianLinks.length === 0 ? (
+          <div className="card">
+            <p className="muted" style={{ margin: 0 }}>
+              No guardians are linked to this pupil yet.
+            </p>
+          </div>
+        ) : (
+          <div className="stack" style={{ gap: "1.25rem" }}>
+            {guardianLinks.map((link) => (
+              <section key={link.guardianId} className="card">
+                <h3 className="card__title">{link.guardian.name}</h3>
+                <GuardianActions
+                  pupilId={pupil.id}
+                  guardianId={link.guardian.id}
+                  name={link.guardian.name}
+                  email={link.guardian.email}
+                  relationship={link.relationship}
+                  isAuthorised={link.isAuthorised}
+                  isPrimaryContact={link.isPrimaryContact}
+                />
+              </section>
+            ))}
+          </div>
+        )}
 
         <h2 style={{ marginTop: "2rem" }}>Consent requests</h2>
         <p className="muted">

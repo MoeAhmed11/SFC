@@ -140,6 +140,15 @@ export const createGuardianSchema = z.object({
   email: emailSchema,
 });
 
+// Guardian contact-detail editing. All fields optional, mirroring
+// updatePupilSchema's "send only what changed" shape. Email changes are
+// re-checked for per-school uniqueness (excluding the guardian's own row) in
+// the service layer, same as createGuardianRecord's uniqueness check.
+export const updateGuardianSchema = z.object({
+  name: trimmedName(120).optional(),
+  email: emailSchema.optional(),
+});
+
 export const createRelationshipSchema = z.object({
   pupilId: z.string().trim().min(1),
   guardianId: z.string().trim().min(1),
