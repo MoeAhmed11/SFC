@@ -9,10 +9,12 @@ import {
   getPupilGuardians,
   listClasses,
 } from "@/server/services/dataService";
+import { getSchoolSettings } from "@/server/services/schoolSettingsService";
 import { NotFoundError } from "@/server/errors";
 import { GuardianActions } from "./GuardianActions";
 import { PupilActions } from "./PupilActions";
 import { ResendConsentButton } from "./ResendConsentButton";
+import { RecordOfflineConsentForm } from "./RecordOfflineConsentForm";
 import { StaffNav } from "../../StaffNav";
 import { StatusBadge } from "../../StatusBadge";
 
@@ -53,11 +55,12 @@ export default async function PupilDetailPage({ params }: PageProps) {
     throw err;
   }
 
-  const [classes, consentHistory, recipientPairings, guardianLinks] = await Promise.all([
+  const [classes, consentHistory, recipientPairings, guardianLinks, settings] = await Promise.all([
     listClasses(prisma, ctx),
     getPupilConsentHistory(prisma, ctx, id),
     getPupilEventRecipients(prisma, ctx, id),
     getPupilGuardians(prisma, ctx, id),
+    getSchoolSettings(prisma, ctx),
   ]);
 
   return (
@@ -174,12 +177,22 @@ export default async function PupilDetailPage({ params }: PageProps) {
                         <StatusBadge status={pairing.event.status} />
                       </td>
                       <td>
-                        <ResendConsentButton
-                          pupilId={pupil.id}
-                          eventId={pairing.event.id}
-                          guardianId={pairing.guardian.id}
-                          disabled={disabled}
-                        />
+                        <div className="stack" style={{ gap: "0.5rem" }}>
+                          <ResendConsentButton
+                            pupilId={pupil.id}
+                            eventId={pairing.event.id}
+                            guardianId={pairing.guardian.id}
+                            disabled={disabled}
+                          />
+                          {settings.allowOfflineConsent ? (
+                            <RecordOfflineConsentForm
+                              pupilId={pupil.id}
+                              eventId={pairing.event.id}
+                              guardianId={pairing.guardian.id}
+                              disabled={disabled}
+                            />
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -214,6 +227,7 @@ export default async function PupilDetailPage({ params }: PageProps) {
                   <th scope="col">Response</th>
                   <th scope="col">State</th>
                   <th scope="col">Submitted</th>
+                  <th scope="col">Source</th>
                   <th scope="col">Notes</th>
                 </tr>
               </thead>
@@ -229,6 +243,7 @@ export default async function PupilDetailPage({ params }: PageProps) {
                       <StatusBadge status={entry.state} />
                     </td>
                     <td>{formatDate(entry.submittedAt)}</td>
+                    <td>{entry.source === "staff" ? "Recorded by staff" : "Submitted by parent"}</td>
                     <td>{entry.notes ?? "—"}</td>
                   </tr>
                 ))}

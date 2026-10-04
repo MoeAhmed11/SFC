@@ -50,6 +50,11 @@ export const CAPABILITIES = [
   "staff.delete", // hard-delete a staff user (conditional on no created events) — admin only
   "staff.reset_password", // admin-triggered password reset link for another staff user — admin only
   "audit.view", // audit log viewer — admin only
+  // Record a parent's consent decision given offline (paper form, phone call,
+  // in person) on their behalf — decision 17.5, gated on the school's
+  // allowOfflineConsent setting. Same admin + organiser split as
+  // consent.resend: both run events day-to-day and may need this.
+  "consent.record_offline",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
@@ -69,12 +74,20 @@ const ROLE_CAPABILITIES: Record<StaffRole, ReadonlySet<Capability>> = {
     "staff.delete",
     "staff.reset_password",
     "audit.view",
+    "consent.record_offline",
   ]),
   // Event organisers manage events and view rosters, but cannot administer
   // staff, mutate/import core school data, or change school policy (Section 5.2).
   // They can, however, resend/reissue an individual consent link (Requirement 3
-  // in the MVP enhancements spec) since that's part of running their events.
-  organiser: new Set<Capability>(["event.manage", "event.view", "data.view", "consent.resend"]),
+  // in the MVP enhancements spec), and record offline consent, since both are
+  // part of running their events day-to-day.
+  organiser: new Set<Capability>([
+    "event.manage",
+    "event.view",
+    "data.view",
+    "consent.resend",
+    "consent.record_offline",
+  ]),
 };
 
 export const PUPIL_STATUSES = ["active", "archived"] as const;

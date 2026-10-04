@@ -5,6 +5,7 @@ import { prisma } from "@/server/db";
 import { requireStaffContext } from "@/server/http/session";
 import { archivePupil, linkGuardianToPupil, updateGuardian, updatePupil } from "@/server/services/dataService";
 import { resendConsentLink } from "@/server/services/consentResendService";
+import { recordOfflineConsent } from "@/server/services/offlineConsentService";
 import { AppError } from "@/server/errors";
 import type { PupilStatus } from "@/server/domain";
 
@@ -145,4 +146,42 @@ export async function resendConsentLinkAction(
   }
   revalidatePath(`/pupils/${pupilId}`);
   return { success: "A new consent link has been sent to the guardian." };
+}
+
+// Records a parent's consent decision given offline (paper form, phone call,
+// in person) — decision 17.5, Requirement 6 of the MVP admin & consent
+// enhancements spec. Only usable when the school's allowOfflineConsent
+// setting is on; recordOfflineConsent itself enforces that (and the
+// consent.record_offline capability), so a stale/tampered client request
+// still can't bypass either check.
+export async function recordOfflineConsentAction(
+  pupilId: string,
+  eventId: string,
+  guardianId: string,
+  _prevState: PupilActionState,
+  formData: FormData,
+): Promise<PupilActionState> {
+  const ctx = await requireStaffContext();
+
+  const response = String(formData.get("response") ?? "");
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (response !== "granted" && response !== "declined") {
+    return { error: "Please choose whether the parent granted or declined consent." };
+  }
+
+  try {
+    await recordOfflineConsent(prisma, ctx, {
+      eventId,
+      pupilId,
+      guardianId,
+      response,
+      notes: notes || undefined,
+    });
+  } catch (err) {
+    if (err instanceof AppError) return { error: err.message };
+    return { error: "Something went wrong. Please try again." };
+  }
+  revalidatePath(`/pupils/${pupilId}`);
+  return { success: "Consent recorded." };
 }

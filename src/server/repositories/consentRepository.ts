@@ -11,6 +11,9 @@ export interface CreateConsentInput {
   response: ConsentResponseValue;
   formVersion: number;
   notes?: string | null;
+  // "parent" (default) or "staff" — see ConsentResponse.source in schema.prisma.
+  source?: "parent" | "staff";
+  recordedByStaffUserId?: string | null;
 }
 
 // The single current response for a pupil+guardian on an event, if any.

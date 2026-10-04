@@ -354,6 +354,16 @@ model ConsentResponse {
   formVersion Int      @default(1)
   notes       String?
   submittedAt DateTime @default(now())
+  // "parent" (submitted by the parent through their secure link, the default
+  // and overwhelmingly common case) | "staff" (recorded on the parent's
+  // behalf by a staff member from a paper form, phone call, or in-person
+  // conversation — decision 17.5, allowOfflineConsent). Kept as an explicit
+  // column rather than inferred from the audit log so provenance is visible
+  // directly on the response itself (consent history table, dashboards).
+  source      String   @default("parent")
+  // Set only when source = "staff": which staff member recorded it. Null for
+  // parent-submitted responses.
+  recordedByStaffUserId String?
 
   school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
