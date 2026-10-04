@@ -28,7 +28,7 @@ export default async function ConsentPage({ params }: PageProps) {
     throw err;
   }
 
-  const { event, pupilName, currentResponse } = view;
+  const { event, pupilName, currentResponse, canRespond } = view;
 
   return (
     <main className="auth-screen">
@@ -62,14 +62,22 @@ export default async function ConsentPage({ params }: PageProps) {
           <p role="alert" className="alert alert--warning">
             This activity has been cancelled. No response is needed.
           </p>
-        ) : currentResponse ? (
+        ) : currentResponse && !canRespond ? (
           <AlreadyResponded response={currentResponse} />
-        ) : view.deadlinePassed ? (
+        ) : !currentResponse && !canRespond && view.deadlinePassed ? (
           <p role="alert" className="alert alert--warning">
             The deadline to respond to this activity has passed.
           </p>
         ) : (
-          <ConsentForm token={token} />
+          <>
+            {currentResponse ? (
+              <p role="status" className="alert alert--info">
+                You previously {currentResponse === "granted" ? "gave" : "declined"} consent for this
+                activity. Submitting below will replace that response.
+              </p>
+            ) : null}
+            <ConsentForm token={token} currentResponse={currentResponse} />
+          </>
         )}
       </div>
     </main>

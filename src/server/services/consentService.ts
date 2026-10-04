@@ -40,6 +40,12 @@ export interface ConsentView {
   // The parent's current response, if they have already answered.
   currentResponse: ConsentResponseValue | null;
   deadlinePassed: boolean;
+  // Whether the parent can submit a (first or corrected) response right now.
+  // Mirrors submitConsent's own gating exactly (deadline + editing policy),
+  // so the view shown here never promises something submitConsent would then
+  // reject. False once a response already exists and allowConsentEditing is
+  // off, or the deadline has passed without lateness/exemption cover.
+  canRespond: boolean;
 }
 
 // Resolves a raw token to the consent view. Throws a single generic error for
@@ -52,6 +58,9 @@ export async function getConsentView(db: Db, rawToken: string): Promise<ConsentV
   const guardian = await findGuardianByIdInSchool(db, binding.schoolId, binding.guardianId);
   if (!event || !pupil || !guardian) throw invalidLink();
 
+  const school = await findSchoolById(db, binding.schoolId);
+  const settings = parseSchoolSettings(school?.settings);
+
   const current = await findCurrentResponse(
     db,
     binding.schoolId,
@@ -59,6 +68,11 @@ export async function getConsentView(db: Db, rawToken: string): Promise<ConsentV
     binding.pupilId,
     binding.guardianId,
   );
+
+  const deadlinePassed = event.consentDeadline.getTime() <= Date.now();
+  const deadlineOk = !deadlinePassed || binding.deadlineExempt || settings.allowLateConsent;
+  const editingOk = !current || settings.allowConsentEditing;
+  const canRespond = event.status === "published" && deadlineOk && editingOk;
 
   return {
     event: {
@@ -73,7 +87,8 @@ export async function getConsentView(db: Db, rawToken: string): Promise<ConsentV
     pupilName: `${pupil.firstName} ${pupil.lastName}`,
     guardianName: guardian.name,
     currentResponse: (current?.response as ConsentResponseValue | undefined) ?? null,
-    deadlinePassed: event.consentDeadline.getTime() <= Date.now(),
+    deadlinePassed,
+    canRespond,
   };
 }
 
