@@ -118,9 +118,16 @@ build or pre-deploy steps. Don't move it back into `envVars`.
    `APP_BASE_URL`/`PARENT_LINK_BASE_URL` — these build staff invite links and
    parent consent links, so the custom domain must be live and resolving
    before inviting real staff.
-7. Seed or create the first school. `prisma/seed.ts` creates synthetic demo
-   data only — for a real school, use the staff signup/invite path once one
-   admin account exists, or run a one-off script via Render's Shell tab.
+7. Create the first platform (super-user) account, then use it to create
+   real schools. `prisma/seed.ts` creates synthetic demo data only. There is
+   still no self-service signup for either platform users or schools — run
+   `scripts/bootstrap-platform-user.ts` once via Render's Shell tab (see
+   "Platform (super-user) layer" in `README.md`) against the live
+   `DATABASE_URL`, then sign in at `https://consapass.co.uk/platform/login`
+   and create each real school and its first admin from there. The older
+   `scripts/bootstrap-admin.ts` path (also via Render's Shell tab) still
+   works directly against the database as a fallback if the platform UI is
+   ever unavailable.
 
 ## Shipping updates: how a push redeploys the same services
 

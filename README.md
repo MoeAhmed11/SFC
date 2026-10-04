@@ -136,6 +136,71 @@ was unsafe to expose over HTTP.
   role. The invalid-link state was also confirmed to render safely (200 on the
   page, generic message).
 
+## Platform (super-user) layer
+
+A platform-level super-user role, entirely separate from the tenant-scoped
+`StaffUser`/`admin`/`organiser` roles above. A `PlatformUser`:
+
+- Can create a new school together with its first admin, or add an admin to
+  an existing school, in both cases via a web UI rather than a shell script.
+- Can view **read-only usage counts** (staff/pupil/guardian/event counts,
+  published events, current consent responses) across every school.
+- Has **no access to any tenant's operational data** — no pupils, guardians,
+  consent responses, or audit logs. The platform routes/services never accept
+  a `StaffContext`, and the staff-facing routes never accept a
+  `PlatformContext`, so the two account types cannot be substituted for one
+  another.
+
+This is a deliberate reversal of the earlier design decision that "school
+creation is deliberately not exposed over HTTP" (see
+`scripts/bootstrap-admin.ts`): it's still true that there is no *self-service*
+signup for either schools or platform users, but an authenticated super-user
+can now do over HTTP what previously required direct database/shell access.
+
+### Design
+
+- **Fully separate login/session system.** `PlatformUser`, `PlatformSession`,
+  and `PlatformAuditLog` are new Prisma models with no `schoolId` at all —
+  they are not a variant of `StaffUser`. Sessions use a different cookie
+  (`sc_platform_session` vs `sc_session`), a different context type
+  (`PlatformContext` vs `StaffContext`, see `src/server/platform/context.ts`),
+  and a different audit table (`PlatformAuditLog` vs the per-school
+  `AuditLog`), so a platform session can never be confused with, or escalate
+  into, a tenant session.
+- **One role, no capability matrix.** Unlike `STAFF_ROLES`
+  (`admin`/`organiser`), there's exactly one platform role today, so
+  `platformAdminService.ts` has no `requireCapability`-style gate — any
+  authenticated `PlatformContext` may do everything the layer supports, which
+  is intentionally narrow (create schools/admins, view usage counts).
+- **View-only usage data is counts only.** `getSchoolUsageCounts` in
+  `schoolRepository.ts` returns aggregate `count()`s only (staff, pupils,
+  guardians, events, published events, current consent responses) — no row
+  content from any tenant table is ever read by the platform layer.
+- **Bootstrapping mirrors the existing pattern.** There is no self-service
+  platform signup either. The first platform user is created with
+  `scripts/bootstrap-platform-user.ts`, which mirrors
+  `scripts/bootstrap-admin.ts`'s shape exactly (refuses to run if the email
+  already exists; sets a real password directly, no invite-acceptance step):
+
+  ```powershell
+  npx tsx scripts/bootstrap-platform-user.ts `
+    --name "Jane Smith" `
+    --email "jane.smith@consapass.co.uk" `
+    --password "a-strong-password-you-choose"
+  ```
+
+  Afterwards, sign in at `/platform/login`.
+
+### Routes and pages
+
+| Path | Purpose |
+| --- | --- |
+| `/platform/login`, `POST /api/platform/auth/login` | Platform sign-in. |
+| `POST /api/platform/auth/logout` | Platform sign-out. |
+| `/platform`, `GET`/`POST /api/platform/schools` | Dashboard: list every school with usage counts; create a school + its first admin. |
+| `/platform/schools/[id]`, `GET /api/platform/schools/[id]` | Single school's usage detail. |
+| `POST /api/platform/schools/[id]/admins` | Add an admin to an existing school (e.g. a school locked out of all its admin accounts). |
+
 ## What Phase 8 delivers (complete — all 4 slices)
 
 Phase 8 is the HTTP API + UI layer that every prior phase's services have been
@@ -456,6 +521,7 @@ placeholders only** — never commit real secrets (spec Section 18.7).
 | `DATABASE_URL` | Prisma datasource. Dev/test: `file:./dev.db`. Production: a `postgresql://` URL. |
 | `SESSION_SECRET` | Secret for session handling (32+ random bytes). |
 | `SESSION_TTL_SECONDS` | Session lifetime in seconds (default 28800 = 8h). |
+| `PLATFORM_SESSION_TTL_SECONDS` | Platform (super-user) session lifetime in seconds (default 28800 = 8h) — see "Platform (super-user) layer" below. |
 | `EMAIL_PROVIDER` | `mock` (default; sends nothing) or `resend` — see "Email provider configuration" above. |
 | `RESEND_API_KEY` | Required when `EMAIL_PROVIDER=resend`. Secret; never commit a real value. |
 | `EMAIL_FROM` | Required when `EMAIL_PROVIDER=resend`, e.g. `ConsaPass <no-reply@consapass.co.uk>`. Must be on a domain verified in Resend (SPF/DKIM). |

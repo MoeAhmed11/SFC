@@ -71,6 +71,37 @@ export const setPasswordSchema = z.object({
   password: passwordSchema,
 });
 
+// --- Platform (super-user) layer --------------------------------------------
+
+export const platformLoginSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1).max(200),
+});
+
+export const createPlatformUserSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: emailSchema,
+  password: passwordSchema,
+});
+
+// Platform-created school + its first admin, in one request. Reuses
+// createSchoolSchema's shape for the school fields.
+export const createSchoolWithAdminSchema = z.object({
+  name: createSchoolSchema.shape.name,
+  schoolType: createSchoolSchema.shape.schoolType,
+  timezone: createSchoolSchema.shape.timezone,
+  adminName: z.string().trim().min(1).max(120),
+  adminEmail: emailSchema,
+  adminPassword: passwordSchema,
+});
+
+// Adding an admin to an EXISTING school (no school fields).
+export const createSchoolAdminSchema = z.object({
+  adminName: z.string().trim().min(1).max(120),
+  adminEmail: emailSchema,
+  adminPassword: passwordSchema,
+});
+
 export const changeRoleSchema = z.object({
   role: staffRoleSchema,
 });

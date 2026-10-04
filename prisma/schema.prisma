@@ -454,3 +454,68 @@ model PasswordResetToken {
   @@index([staffUserId])
   @@map("password_reset_tokens")
 }
+
+// ---------------------------------------------------------------------------
+// Platform (super-user) layer. A PlatformUser is NOT a tenant member — it has
+// no schoolId and belongs to no School row. It is a wholly separate account
+// type/login system from StaffUser, by design (see
+// src/server/platform/context.ts): platform users can create schools and a
+// school's first admin, and view read-only usage counts across every school,
+// but have no capability to view/manage any tenant's pupil, guardian, or
+// consent data. There is deliberately no self-service signup for this role
+// either — the first PlatformUser is created by scripts/bootstrap-platform-user.ts,
+// mirroring how the first school admin is created by scripts/bootstrap-admin.ts.
+model PlatformUser {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  // "active" | "deactivated". No "invited" state: platform users are always
+  // created with a password already set by the bootstrap script, there being
+  // no invite-acceptance flow at this layer.
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions PlatformSession[]
+
+  @@map("platform_users")
+}
+
+/// Server-side session record for a signed-in platform user. Mirrors
+/// StaffSession's design (hashed token, explicit revocation) but is a fully
+/// separate table/cookie so a platform session can never be confused with, or
+/// escalate into, a tenant StaffContext.
+model PlatformSession {
+  id             String    @id @default(cuid())
+  platformUserId String
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  revokedAt      DateTime?
+
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+
+  @@index([platformUserId])
+  @@map("platform_sessions")
+}
+
+/// Append-only audit trail for platform-level actions (creating a school,
+/// creating a school's first admin). Kept separate from AuditLog, which is
+/// always schoolId-scoped — a platform action like "create school" happens
+/// before the school fully exists as a tenant and shouldn't be attributed to
+/// a staff actor type.
+model PlatformAuditLog {
+  id             String   @id @default(cuid())
+  platformUserId String
+  // e.g. "platform.school_created", "platform.admin_created", "platform.login".
+  action         String
+  entityType     String?
+  entityId       String?
+  metadata       String   @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([platformUserId])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}

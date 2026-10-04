@@ -13,6 +13,10 @@ export type StaffStatus = (typeof STAFF_STATUSES)[number];
 export const SCHOOL_TYPES = ["state", "independent"] as const;
 export type SchoolType = (typeof SCHOOL_TYPES)[number];
 
+export function isSchoolType(value: unknown): value is SchoolType {
+  return typeof value === "string" && (SCHOOL_TYPES as readonly string[]).includes(value);
+}
+
 export const ACTOR_TYPES = ["staff", "system", "parent"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
